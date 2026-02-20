@@ -14,14 +14,25 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.theraklick.mobile"
+      "bundleIdentifier": "com.theraklick.mobile",
+      "bitcode": false
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#F0FDF4"
       },
-      "package": "com.theraklick.mobile"
+      "package": "com.theraklick.mobile",
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,6 +55,11 @@
           "microphonePermission": "Theraklick needs microphone access for calls"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "efec72d7-ff68-4d16-ada2-f44bd0aa8fa4"
+      }
+    }
   }
 }
