@@ -1,11 +1,11 @@
 /**
- * ForumsScreen — anonymous community support (MVP).
+ * ForumsScreen — anonymous community support backed by Firestore.
  *
- * Phase 1: static categories + placeholder posts.
- * Phase 2: wire to Firestore forums collection with real-time listeners.
+ * Real-time listener updates posts as they come in.
+ * Users can create posts and report inappropriate content.
  */
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -14,8 +14,17 @@ import {
   FlatList,
   TextInput,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { useAuth } from "../context/AuthContext";
+import {
+  createForumPost,
+  flagForumPost,
+  subscribeToForumPosts,
+} from "../services/forumStore";
+import type { ForumPost } from "../shared/types";
 
 const CATEGORIES = [
   { id: "exams", label: "Exams & Academics", emoji: "📚" },
@@ -24,53 +33,78 @@ const CATEGORIES = [
   { id: "vent", label: "General / Vent", emoji: "💭" },
 ];
 
-type Post = {
-  id: string;
-  anonymousName: string;
-  content: string;
-  category: string;
-  createdAt: number;
-};
-
-const SAMPLE_POSTS: Post[] = [
-  {
-    id: "1",
-    anonymousName: "calmzebra42",
-    content: "Finals are next week and I can't focus. Anyone else feeling this way?",
-    category: "exams",
-    createdAt: Date.now() - 3600000,
-  },
-  {
-    id: "2",
-    anonymousName: "gentledove88",
-    content: "Had a panic attack in lecture today. Feeling better now but it was scary.",
-    category: "anxiety",
-    createdAt: Date.now() - 7200000,
-  },
-  {
-    id: "3",
-    anonymousName: "bravepanda19",
-    content: "Just want to say — you're not alone. We're all figuring this out together.",
-    category: "vent",
-    createdAt: Date.now() - 10800000,
-  },
-];
-
 export function ForumsScreen() {
+  const { profile } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [posts, setPosts] = useState<ForumPost[]>([]);
   const [newPost, setNewPost] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredPosts = selectedCategory
-    ? SAMPLE_POSTS.filter((p) => p.category === selectedCategory)
-    : SAMPLE_POSTS;
+  // Real-time listener
+  useEffect(() => {
+    const unsub = subscribeToForumPosts(selectedCategory, setPosts);
+    return () => unsub();
+  }, [selectedCategory]);
 
-  const handlePost = () => {
-    if (!newPost.trim()) return;
-    Alert.alert(
-      "Coming soon",
-      "Forum posting will be connected to Firestore in Phase 2."
-    );
-    setNewPost("");
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    const unsub = subscribeToForumPosts(selectedCategory, (p) => {
+      setPosts(p);
+      setRefreshing(false);
+    });
+    return () => unsub();
+  }, [selectedCategory]);
+
+  const handlePost = async () => {
+    const text = newPost.trim();
+    if (!text || !profile) return;
+
+    setPosting(true);
+    try {
+      await createForumPost({
+        authorId: profile.uid,
+        anonymousName:
+          profile.anonymousEnabled && profile.anonymousId
+            ? profile.anonymousId
+            : profile.fullName || "anonymous",
+        content: text,
+        category: selectedCategory || "vent",
+      });
+      setNewPost("");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Could not create post.");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handleReport = (postId: string) => {
+    Alert.alert("Report Post", "Flag this post for review by moderators?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Report",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await flagForumPost(postId);
+            Alert.alert("Reported", "Thank you. A moderator will review this.");
+          } catch {
+            Alert.alert("Error", "Could not report post.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const formatTime = (ts: number) => {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
   };
 
   return (
@@ -97,7 +131,12 @@ export function ForumsScreen() {
               )
             }
           >
-            <Text style={styles.pillText}>
+            <Text
+              style={[
+                styles.pillText,
+                selectedCategory === item.id && styles.pillTextActive,
+              ]}
+            >
               {item.emoji} {item.label}
             </Text>
           </TouchableOpacity>
@@ -106,17 +145,31 @@ export function ForumsScreen() {
 
       {/* Posts */}
       <FlatList
-        data={filteredPosts}
+        data={posts}
         keyExtractor={(p) => p.id}
         contentContainerStyle={styles.posts}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#16A34A" />
+        }
         renderItem={({ item }) => (
           <View style={styles.postCard}>
-            <Text style={styles.postAuthor}>{item.anonymousName}</Text>
+            <View style={styles.postHeader}>
+              <Text style={styles.postAuthor}>{item.anonymousName}</Text>
+              <Text style={styles.postTime}>{formatTime(item.createdAt)}</Text>
+            </View>
             <Text style={styles.postContent}>{item.content}</Text>
+            <TouchableOpacity
+              style={styles.reportBtn}
+              onPress={() => handleReport(item.id)}
+            >
+              <Text style={styles.reportText}>Report</Text>
+            </TouchableOpacity>
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.empty}>No posts in this category yet.</Text>
+          <Text style={styles.empty}>
+            No posts yet. Be the first to share.
+          </Text>
         }
       />
 
@@ -129,9 +182,14 @@ export function ForumsScreen() {
           value={newPost}
           onChangeText={setNewPost}
           multiline
+          maxLength={1000}
         />
-        <TouchableOpacity style={styles.postBtn} onPress={handlePost}>
-          <Text style={styles.postBtnText}>Post</Text>
+        <TouchableOpacity
+          style={[styles.postBtn, (posting || !newPost.trim()) && styles.postBtnDisabled]}
+          onPress={handlePost}
+          disabled={posting || !newPost.trim()}
+        >
+          <Text style={styles.postBtnText}>{posting ? "..." : "Post"}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -162,11 +220,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  pillActive: {
-    backgroundColor: "#16A34A",
-    borderColor: "#16A34A",
-  },
+  pillActive: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
   pillText: { fontSize: 12, fontWeight: "600", color: "#374151" },
+  pillTextActive: { color: "#FFFFFF" },
   posts: { paddingHorizontal: 20, paddingBottom: 12, gap: 12 },
   postCard: {
     backgroundColor: "#FFFFFF",
@@ -175,8 +231,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  postAuthor: { fontSize: 12, fontWeight: "700", color: "#16A34A", marginBottom: 4 },
+  postHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  postAuthor: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
+  postTime: { fontSize: 11, color: "#9CA3AF" },
   postContent: { fontSize: 14, color: "#374151", lineHeight: 22 },
+  reportBtn: { marginTop: 10, alignSelf: "flex-end" },
+  reportText: { fontSize: 11, color: "#9CA3AF", fontWeight: "600" },
   empty: { fontSize: 14, color: "#9CA3AF", textAlign: "center", marginTop: 32 },
   compose: {
     flexDirection: "row",
@@ -204,5 +269,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
+  postBtnDisabled: { opacity: 0.4 },
   postBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
 });

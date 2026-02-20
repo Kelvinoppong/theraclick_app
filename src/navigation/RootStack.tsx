@@ -2,14 +2,10 @@
  * RootStack — top-level navigator.
  *
  * Decides which flow to show based on auth state:
- *   - Not loaded yet → splash / loading
- *   - No profile / no role → onboarding (Welcome → RoleSelection → setup)
+ *   - Not loaded → splash / loading
+ *   - No profile / no role → onboarding
  *   - Role set but status=pending → PendingApproval
- *   - Active → MainTabs
- *
- * WHY a stack at the root? So auth screens and the main app
- * live in separate groups and we can do a clean "replace" transition
- * when the user logs in.
+ *   - Active → MainTabs + modal screens (Emergency, DM, Admin)
  */
 
 import React from "react";
@@ -26,6 +22,8 @@ import { MentorApplyScreen } from "../screens/MentorApplyScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 import { PendingApprovalScreen } from "../screens/PendingApprovalScreen";
 import { EmergencyScreen } from "../screens/EmergencyScreen";
+import { DirectMessageScreen } from "../screens/DirectMessageScreen";
+import { AdminScreen } from "../screens/AdminScreen";
 import { MainTabs } from "./BottomTabs";
 
 export type RootStackParamList = {
@@ -36,6 +34,8 @@ export type RootStackParamList = {
   Login: undefined;
   PendingApproval: undefined;
   Emergency: undefined;
+  DirectMessage: { chatId: string; otherName: string };
+  Admin: undefined;
   MainTabs: undefined;
 };
 
@@ -65,7 +65,6 @@ export function RootNavigator() {
         }}
       >
         {!isOnboarded ? (
-          // Auth / onboarding flow
           <Stack.Group>
             <Stack.Screen name="Welcome" component={WelcomeScreen} />
             <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
@@ -76,13 +75,22 @@ export function RootNavigator() {
         ) : isPending ? (
           <Stack.Screen name="PendingApproval" component={PendingApprovalScreen} />
         ) : (
-          // Main app
           <Stack.Group>
             <Stack.Screen name="MainTabs" component={MainTabs} />
             <Stack.Screen
               name="Emergency"
               component={EmergencyScreen}
               options={{ presentation: "modal", animation: "slide_from_bottom" }}
+            />
+            <Stack.Screen
+              name="DirectMessage"
+              component={DirectMessageScreen}
+              options={{ headerShown: true, headerTitle: "Message", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="Admin"
+              component={AdminScreen}
+              options={{ headerShown: true, headerTitle: "Admin", headerTintColor: "#16A34A" }}
             />
           </Stack.Group>
         )}

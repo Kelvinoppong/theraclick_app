@@ -1,24 +1,30 @@
 /**
  * BottomTabs — main app tabs after user is authenticated.
  *
- * Mirrors the web's BottomNav.tsx component layout:
- *   Dashboard | Chat | Forums | Booking
+ * Role-aware: Students get the full 5-tab layout.
+ * Mentors/Counselors get their own dashboard + messages + profile.
  */
 
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Text } from "react-native";
 
+import { useAuth } from "../context/AuthContext";
+
 import { StudentDashboardScreen } from "../screens/StudentDashboardScreen";
+import { MentorDashboardScreen } from "../screens/MentorDashboardScreen";
+import { CounselorDashboardScreen } from "../screens/CounselorDashboardScreen";
 import { ChatScreen } from "../screens/ChatScreen";
 import { ForumsScreen } from "../screens/ForumsScreen";
 import { BookingScreen } from "../screens/BookingScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
 
 export type MainTabsParamList = {
   Dashboard: undefined;
   Chat: undefined;
   Forums: undefined;
   Booking: undefined;
+  Profile: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -29,6 +35,7 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     Chat: "💬",
     Forums: "👥",
     Booking: "📅",
+    Profile: "👤",
   };
   return (
     <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>
@@ -38,6 +45,16 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 }
 
 export function MainTabs() {
+  const { profile } = useAuth();
+  const role = profile?.role;
+
+  const DashboardComponent =
+    role === "peer-mentor"
+      ? MentorDashboardScreen
+      : role === "counselor"
+        ? CounselorDashboardScreen
+        : StudentDashboardScreen;
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -60,10 +77,13 @@ export function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={StudentDashboardScreen} />
+      <Tab.Screen name="Dashboard" component={DashboardComponent} />
       <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="Forums" component={ForumsScreen} />
-      <Tab.Screen name="Booking" component={BookingScreen} />
+      {role === "student" && (
+        <Tab.Screen name="Booking" component={BookingScreen} />
+      )}
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
