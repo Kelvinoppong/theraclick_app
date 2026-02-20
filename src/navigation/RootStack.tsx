@@ -33,6 +33,7 @@ import { PersonalDetailsScreen } from "../screens/PersonalDetailsScreen";
 import { PrivacySecurityScreen } from "../screens/PrivacySecurityScreen";
 import { AboutScreen } from "../screens/AboutScreen";
 import { CounselorAvailabilityScreen } from "../screens/CounselorAvailabilityScreen";
+import { CallScreen } from "../screens/CallScreen";
 import { MainTabs } from "./BottomTabs";
 
 export type RootStackParamList = {
@@ -49,6 +50,7 @@ export type RootStackParamList = {
   Approvals: undefined;
   CounselorList: undefined;
   CounselorAvailability: undefined;
+  Call: { callId: string; callType: "audio" | "video"; otherName: string; isCaller: boolean };
   ForumChannel: { channelId: string; channelName: string };
   PersonalDetails: undefined;
   PrivacySecurity: undefined;
@@ -102,7 +104,7 @@ export function RootNavigator() {
             <Stack.Screen
               name="DirectMessage"
               component={DirectMessageScreen}
-              options={{ headerShown: true, headerTitle: "Message", headerTintColor: "#16A34A" }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="Admin"
@@ -128,6 +130,15 @@ export function RootNavigator() {
               name="CounselorAvailability"
               component={CounselorAvailabilityScreen}
               options={{ headerShown: true, headerTitle: "Set Availability", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="Call"
+              component={CallScreen}
+              options={{
+                headerShown: false,
+                presentation: "fullScreenModal",
+                animation: "slide_from_bottom",
+              }}
             />
             <Stack.Screen
               name="ForumChannel"

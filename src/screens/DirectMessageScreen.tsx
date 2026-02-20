@@ -2,6 +2,7 @@
  * DirectMessageScreen — real-time DM between student and mentor/counselor.
  *
  * Uses the `directMessages` Firestore collection (shared with web).
+ * Header includes audio/video call buttons that navigate to CallScreen.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -12,9 +13,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Text,
+  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { doc, getDoc } from "firebase/firestore";
 
 import { useAuth } from "../context/AuthContext";
 import {
@@ -24,6 +27,8 @@ import {
 } from "../services/messagingStore";
 import { sendImmediateNotification } from "../services/notifications";
 import { addNotification } from "../services/notificationStore";
+import { createCall, type CallType } from "../services/callStore";
+import { db, firebaseIsReady } from "../services/firebase";
 
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
@@ -31,17 +36,36 @@ import { ChatInput } from "../components/ChatInput";
 export type DirectMessageParams = {
   chatId: string;
   otherName: string;
+  otherUid?: string;
 };
 
 type Props = NativeStackScreenProps<any, "DirectMessage">;
 
-export function DirectMessageScreen({ route }: Props) {
-  const { chatId, otherName } = route.params as DirectMessageParams;
+export function DirectMessageScreen({ route, navigation }: Props) {
+  const { chatId, otherName, otherUid: passedOtherUid } =
+    route.params as DirectMessageParams;
   const { profile } = useAuth();
   const flatListRef = useRef<FlatList>(null);
 
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [resolvedOtherUid, setResolvedOtherUid] = useState<string | null>(
+    passedOtherUid ?? null
+  );
+
+  // Resolve the other participant's UID from the DM thread
+  useEffect(() => {
+    if (resolvedOtherUid || !firebaseIsReady || !db || !profile) return;
+
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "directMessages", chatId));
+        const participants: string[] = snap.data()?.participants ?? [];
+        const other = participants.find((uid) => uid !== profile.uid);
+        if (other) setResolvedOtherUid(other);
+      } catch {}
+    })();
+  }, [chatId, profile]);
 
   useEffect(() => {
     const unsub = subscribeToDmMessages(chatId, setMessages);
@@ -60,10 +84,9 @@ export function DirectMessageScreen({ route }: Props) {
     try {
       await sendDirectMessage(chatId, profile.uid, text);
 
-      // Notify the other person (local push + in-app feed)
       const senderName = profile.fullName || "Someone";
       const title = `New message from ${senderName}`;
-      const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
+      const preview = text.length > 80 ? text.slice(0, 80) + "\u2026" : text;
 
       sendImmediateNotification(title, preview);
       addNotification({
@@ -78,10 +101,60 @@ export function DirectMessageScreen({ route }: Props) {
     }
   };
 
+  const startCall = async (type: CallType) => {
+    if (!profile || !resolvedOtherUid) return;
+    try {
+      const callerName = profile.fullName || "Unknown";
+      const callId = await createCall(
+        profile.uid,
+        resolvedOtherUid,
+        callerName,
+        otherName,
+        type
+      );
+      navigation.navigate("Call", {
+        callId,
+        callType: type,
+        otherName,
+        isCaller: true,
+      });
+    } catch (e) {
+      console.warn("Failed to start call:", e);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* Header with call buttons */}
       <View style={styles.header}>
-        <Text style={styles.headerName}>{otherName}</Text>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+        >
+          <Text style={styles.backArrow}>{"\u2039"}</Text>
+        </TouchableOpacity>
+
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerName} numberOfLines={1}>
+            {otherName}
+          </Text>
+          <Text style={styles.headerSub}>tap here for info</Text>
+        </View>
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.callBtn}
+            onPress={() => startCall("audio")}
+          >
+            <Text style={styles.callIcon}>📞</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.callBtn}
+            onPress={() => startCall("video")}
+          >
+            <Text style={styles.callIcon}>📹</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <KeyboardAvoidingView
@@ -111,12 +184,39 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0FDF4" },
   flex: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
+    gap: 8,
   },
+  backBtn: {
+    width: 32,
+    height: 32,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  backArrow: {
+    fontSize: 28,
+    color: "#16A34A",
+    fontWeight: "600",
+    marginTop: -2,
+  },
+  headerCenter: { flex: 1 },
   headerName: { fontSize: 17, fontWeight: "700", color: "#111827" },
+  headerSub: { fontSize: 12, color: "#9CA3AF", marginTop: 1 },
+  headerActions: { flexDirection: "row", gap: 6 },
+  callBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F0FDF4",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callIcon: { fontSize: 18 },
   list: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8 },
 });

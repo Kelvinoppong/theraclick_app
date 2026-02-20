@@ -5,6 +5,7 @@ import * as Notifications from "expo-notifications";
 import { AuthProvider } from "./src/context/AuthContext";
 import { RootNavigator } from "./src/navigation/RootStack";
 import { SplashScreen } from "./src/components/SplashScreen";
+import { IncomingCallOverlay } from "./src/components/IncomingCallOverlay";
 import { navigationRef } from "./src/navigation/navigationRef";
 
 export default function App() {
@@ -28,6 +29,13 @@ export default function App() {
           navigationRef.current.navigate("MainTabs" as never);
         } else if (data?.screen === "Chat") {
           navigationRef.current.navigate("MainTabs" as never);
+        } else if (data?.screen === "Call" && data?.callId) {
+          navigationRef.current.navigate("Call" as never, {
+            callId: data.callId,
+            callType: data.callType || "audio",
+            otherName: data.otherName || "Call",
+            isCaller: false,
+          } as never);
         }
       });
 
@@ -51,6 +59,7 @@ export default function App() {
           <>
             <StatusBar style="dark" />
             <RootNavigator />
+            <IncomingCallOverlay />
           </>
         )}
       </AuthProvider>
