@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Theraklick",
+    "slug": "theraklick-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F0FDF4"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.theraklick.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F0FDF4"
+      },
+      "package": "com.theraklick.mobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
