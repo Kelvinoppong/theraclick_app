@@ -28,7 +28,15 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#16A34A",
+          "defaultChannel": "default"
+        }
+      ]
     ]
   }
 }

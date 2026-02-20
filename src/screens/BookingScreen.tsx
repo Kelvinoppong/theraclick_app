@@ -1,9 +1,11 @@
 /**
- * BookingScreen — counselor booking backed by Firestore.
+ * BookingScreen — counselor appointment view.
  *
- * Two sections:
- *   1. Available counselors + pick a slot → create booking
- *   2. Your upcoming bookings (real-time updates)
+ * Inspired by the reference UI:
+ *   - Horizontal week-day picker at the top
+ *   - Timeline view with appointment cards
+ *   - Empty state with friendly message + "Explore Counselors"
+ *   - Reschedule / Cancel actions on each card
  */
 
 import React, { useEffect, useState } from "react";
@@ -12,70 +14,55 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
+  Alert,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { useAuth } from "../context/AuthContext";
 import {
-  loadCounselors,
-  createBooking,
   cancelBooking,
   subscribeToStudentBookings,
-  CounselorInfo,
 } from "../services/bookingStore";
 import type { Booking } from "../shared/types";
+import type { RootStackParamList } from "../navigation/RootStack";
+import { WeekDayPicker } from "../components/WeekDayPicker";
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+// Time slots for the timeline
+const TIMELINE_HOURS = [
+  "7 AM", "8 AM", "9 AM", "10 AM", "11 AM",
+  "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM",
+];
 
 export function BookingScreen() {
   const { profile } = useAuth();
+  const nav = useNavigation<Nav>();
 
-  const [counselors, setCounselors] = useState<CounselorInfo[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [selectedCounselor, setSelectedCounselor] = useState<string | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [loadingCounselors, setLoadingCounselors] = useState(true);
-  const [booking, setBooking] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Load counselors
-  useEffect(() => {
-    loadCounselors()
-      .then(setCounselors)
-      .finally(() => setLoadingCounselors(false));
-  }, []);
-
-  // Subscribe to user's bookings
   useEffect(() => {
     if (!profile) return;
-    const unsub = subscribeToStudentBookings(profile.uid, setBookings);
+    const unsub = subscribeToStudentBookings(profile.uid, (b) => {
+      setBookings(b);
+      setLoading(false);
+    });
     return () => unsub();
   }, [profile]);
 
-  const handleBook = async () => {
-    if (!selectedCounselor || !selectedSlot || !profile) return;
-
-    setBooking(true);
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      await createBooking({
-        studentId: profile.uid,
-        counselorId: selectedCounselor,
-        date: today,
-        time: selectedSlot,
-      });
-      Alert.alert("Booked", `Your session at ${selectedSlot} is confirmed.`);
-      setSelectedSlot(null);
-      setSelectedCounselor(null);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not create booking.");
-    } finally {
-      setBooking(false);
-    }
-  };
+  const dateStr = selectedDate.toISOString().split("T")[0];
+  const dayBookings = bookings.filter(
+    (b) => b.date === dateStr && b.status !== "cancelled"
+  );
 
   const handleCancel = (bookingId: string) => {
-    Alert.alert("Cancel Booking", "Are you sure?", [
+    Alert.alert("Cancel Appointment", "Are you sure you want to cancel?", [
       { text: "No", style: "cancel" },
       {
         text: "Yes, cancel",
@@ -85,171 +72,343 @@ export function BookingScreen() {
     ]);
   };
 
-  const statusColor = (s: string) => {
-    switch (s) {
-      case "confirmed": return "#16A34A";
-      case "pending": return "#F59E0B";
-      case "completed": return "#6B7280";
-      case "cancelled": return "#EF4444";
-      default: return "#6B7280";
+  const statusBadge = (status: string) => {
+    switch (status) {
+      case "confirmed":
+        return { bg: "#DCFCE7", color: "#16A34A", label: "Confirmed" };
+      case "pending":
+        return { bg: "#FEF3C7", color: "#D97706", label: "Pending" };
+      case "completed":
+        return { bg: "#F3F4F6", color: "#6B7280", label: "Completed" };
+      default:
+        return { bg: "#F3F4F6", color: "#6B7280", label: status };
     }
+  };
+
+  const formatSelectedDate = () => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sel = new Date(selectedDate);
+    sel.setHours(0, 0, 0, 0);
+
+    if (sel.getTime() === today.getTime()) return "Today";
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    if (sel.getTime() === tomorrow.getTime()) return "Tomorrow";
+    return `${months[sel.getMonth()]} ${sel.getDate()}`;
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.heading}>Book a Counselor</Text>
-        <Text style={styles.subtitle}>
-          Select a counselor and pick a time.
-        </Text>
-
-        {/* Counselor list */}
-        {loadingCounselors ? (
-          <ActivityIndicator color="#16A34A" style={{ marginVertical: 20 }} />
-        ) : counselors.length === 0 ? (
-          <Text style={styles.empty}>No counselors available right now.</Text>
-        ) : (
-          counselors.map((c) => (
-            <View key={c.uid} style={styles.counselorCard}>
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedCounselor(selectedCounselor === c.uid ? null : c.uid);
-                  setSelectedSlot(null);
-                }}
-              >
-                <Text style={styles.counselorName}>{c.fullName}</Text>
-                <Text style={styles.counselorSpec}>{c.specialization}</Text>
-              </TouchableOpacity>
-
-              {selectedCounselor === c.uid && (
-                <View style={styles.slots}>
-                  {c.slots.map((slot) => (
-                    <TouchableOpacity
-                      key={slot}
-                      style={[
-                        styles.slotChip,
-                        selectedSlot === slot && styles.slotChipActive,
-                      ]}
-                      onPress={() => setSelectedSlot(slot)}
-                    >
-                      <Text
-                        style={[
-                          styles.slotText,
-                          selectedSlot === slot && styles.slotTextActive,
-                        ]}
-                      >
-                        {slot}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-          ))
-        )}
-
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Counselor Appointments</Text>
         <TouchableOpacity
-          style={[styles.bookBtn, (!selectedSlot || booking) && styles.bookBtnDisabled]}
-          onPress={handleBook}
-          disabled={!selectedSlot || booking}
+          style={styles.notifBtn}
+          onPress={() => {}}
         >
-          {booking ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.bookBtnText}>Confirm Booking</Text>
-          )}
+          <Text style={styles.notifIcon}>🔔</Text>
         </TouchableOpacity>
+      </View>
 
-        {/* My bookings */}
-        {bookings.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Your Bookings</Text>
-            {bookings.map((b) => (
-              <View key={b.id} style={styles.bookingCard}>
-                <View style={styles.bookingRow}>
-                  <Text style={styles.bookingTime}>
-                    {b.date} — {b.time}
-                  </Text>
-                  <Text style={[styles.bookingStatus, { color: statusColor(b.status) }]}>
-                    {b.status}
-                  </Text>
-                </View>
-                {b.status === "pending" && (
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={() => handleCancel(b.id)}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                )}
+      {/* Week day picker */}
+      <WeekDayPicker
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+      />
+
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {loading ? (
+          <ActivityIndicator color="#16A34A" style={{ marginTop: 40 }} />
+        ) : dayBookings.length === 0 ? (
+          /* Empty state */
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIllustration}>
+              <Text style={styles.emptyEmoji}>🌿</Text>
+              <View style={styles.emptyCircle}>
+                <Text style={styles.emptyPersonEmoji}>🧑‍⚕️</Text>
               </View>
-            ))}
-          </>
+            </View>
+
+            <Text style={styles.emptyTitle}>
+              You don't have any{"\n"}appointment for {formatSelectedDate()}.
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              Let's add a new one to improve your{"\n"}mental health state.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.exploreCta}
+              onPress={() => nav.navigate("CounselorList" as any)}
+            >
+              <Text style={styles.exploreCtaText}>Explore Counselors</Text>
+              <Text style={styles.exploreCtaArrow}>→</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          /* Timeline view */
+          <View style={styles.timeline}>
+            {TIMELINE_HOURS.map((hour) => {
+              const hourBookings = dayBookings.filter((b) =>
+                b.time.toLowerCase().includes(hour.toLowerCase())
+              );
+
+              return (
+                <View key={hour} style={styles.timeRow}>
+                  <Text style={styles.timeLabel}>{hour}</Text>
+                  <View style={styles.timeLine} />
+
+                  {hourBookings.length > 0 ? (
+                    <View style={styles.timeCards}>
+                      {hourBookings.map((b) => {
+                        const badge = statusBadge(b.status);
+                        return (
+                          <View key={b.id} style={styles.appointmentCard}>
+                            {/* Counselor avatar */}
+                            <View style={styles.cardRow}>
+                              <View style={styles.avatarCircle}>
+                                <Text style={styles.avatarText}>
+                                  {(b.counselorId || "C").charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                              <View style={styles.cardInfo}>
+                                <Text style={styles.counselorName}>
+                                  Counselor
+                                </Text>
+                                <View style={styles.specRow}>
+                                  <Text style={styles.specText}>🩺 Session</Text>
+                                  <View style={styles.ratingBadge}>
+                                    <Text style={styles.ratingText}>⭐ 4.5</Text>
+                                  </View>
+                                </View>
+                              </View>
+                              {/* Status badge */}
+                              <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                                <Text style={[styles.statusText, { color: badge.color }]}>
+                                  {badge.label}
+                                </Text>
+                              </View>
+                            </View>
+
+                            <Text style={styles.sessionTopic}>
+                              {b.time} — Mental Health Session
+                            </Text>
+
+                            {/* Actions */}
+                            <View style={styles.cardActions}>
+                              <TouchableOpacity>
+                                <Text style={styles.rescheduleText}>Reschedule</Text>
+                              </TouchableOpacity>
+                              {b.status !== "completed" && (
+                                <TouchableOpacity onPress={() => handleCancel(b.id)}>
+                                  <Text style={styles.cancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <View style={styles.emptySlot} />
+                  )}
+                </View>
+              );
+            })}
+          </View>
         )}
       </ScrollView>
+
+      {/* Floating action button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => nav.navigate("CounselorList" as any)}
+      >
+        <Text style={styles.fabIcon}>+</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0FDF4" },
-  scroll: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 60 },
-  heading: { fontSize: 24, fontWeight: "800", color: "#111827", marginBottom: 4 },
-  subtitle: { fontSize: 13, color: "#6B7280", marginBottom: 20 },
-  empty: { fontSize: 14, color: "#9CA3AF", textAlign: "center", marginVertical: 20 },
-  counselorCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  counselorName: { fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 2 },
-  counselorSpec: { fontSize: 13, color: "#6B7280" },
-  slots: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  slotChip: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  slotChipActive: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
-  slotText: { fontSize: 12, fontWeight: "600", color: "#374151" },
-  slotTextActive: { color: "#FFFFFF" },
-  bookBtn: {
-    backgroundColor: "#16A34A",
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 10,
-    marginBottom: 28,
-  },
-  bookBtnDisabled: { opacity: 0.4 },
-  bookBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 12,
-  },
-  bookingCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  bookingRow: {
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  bookingTime: { fontSize: 14, fontWeight: "600", color: "#374151" },
-  bookingStatus: { fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
-  cancelBtn: { marginTop: 8, alignSelf: "flex-end" },
-  cancelText: { fontSize: 12, color: "#EF4444", fontWeight: "600" },
+  headerTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
+  notifBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  notifIcon: { fontSize: 18 },
+  scroll: { paddingBottom: 100 },
+
+  /* Empty state */
+  emptyContainer: {
+    alignItems: "center",
+    paddingTop: 40,
+    paddingHorizontal: 32,
+  },
+  emptyIllustration: {
+    width: 200,
+    height: 200,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  emptyEmoji: {
+    fontSize: 80,
+    position: "absolute",
+    opacity: 0.3,
+    top: 10,
+    left: 20,
+  },
+  emptyCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#DCFCE7",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyPersonEmoji: { fontSize: 56 },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111827",
+    textAlign: "center",
+    lineHeight: 30,
+    marginBottom: 10,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  exploreCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#16A34A",
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    gap: 10,
+    width: "100%",
+    justifyContent: "center",
+  },
+  exploreCtaText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  exploreCtaArrow: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
+
+  /* Timeline */
+  timeline: { paddingLeft: 16, paddingRight: 20 },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    minHeight: 72,
+  },
+  timeLabel: {
+    width: 52,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    paddingTop: 2,
+  },
+  timeLine: {
+    width: 1,
+    backgroundColor: "#E5E7EB",
+    alignSelf: "stretch",
+    marginRight: 14,
+  },
+  timeCards: { flex: 1, paddingVertical: 4 },
+  emptySlot: { flex: 1 },
+
+  /* Appointment card */
+  appointmentCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  avatarCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#DCFCE7",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  avatarText: { fontSize: 18, fontWeight: "800", color: "#16A34A" },
+  cardInfo: { flex: 1 },
+  counselorName: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  specRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
+  specText: { fontSize: 11, color: "#6B7280" },
+  ratingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  ratingText: { fontSize: 11, color: "#D97706", fontWeight: "600" },
+  statusBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  statusText: { fontSize: 10, fontWeight: "700" },
+  sessionTopic: {
+    fontSize: 13,
+    color: "#374151",
+    fontWeight: "500",
+    marginBottom: 10,
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  rescheduleText: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
+  cancelText: { fontSize: 12, fontWeight: "700", color: "#EF4444" },
+
+  /* FAB */
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#16A34A",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#16A34A",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  fabIcon: { fontSize: 28, color: "#FFFFFF", fontWeight: "300", marginTop: -2 },
 });

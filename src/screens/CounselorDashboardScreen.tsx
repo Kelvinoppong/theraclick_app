@@ -19,7 +19,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
   collection,
   getDocs,
-  orderBy,
   query,
   where,
 } from "firebase/firestore";
@@ -52,24 +51,23 @@ export function CounselorDashboardScreen() {
     (async () => {
       const q = query(
         collection(db, "bookings"),
-        where("counselorId", "==", profile.uid),
-        orderBy("createdAt", "desc")
+        where("counselorId", "==", profile.uid)
       );
       const snap = await getDocs(q);
-      setBookings(
-        snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            studentId: data.studentId ?? "",
-            counselorId: data.counselorId ?? "",
-            date: data.date ?? "",
-            time: data.time ?? "",
-            status: data.status ?? "pending",
-            notes: data.notes,
-          };
-        })
-      );
+      const results = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          studentId: data.studentId ?? "",
+          counselorId: data.counselorId ?? "",
+          date: data.date ?? "",
+          time: data.time ?? "",
+          status: data.status ?? "pending",
+          notes: data.notes,
+        };
+      });
+      results.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      setBookings(results);
     })();
   }, [profile]);
 

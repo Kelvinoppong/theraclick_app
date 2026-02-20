@@ -17,7 +17,6 @@ import {
   doc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -104,13 +103,13 @@ export async function loadStudentBookings(
   studentId: string
 ): Promise<Booking[]> {
   if (firebaseIsReady && db) {
+    // Single-field where avoids needing a composite index
     const q = query(
       collection(db, "bookings"),
-      where("studentId", "==", studentId),
-      orderBy("createdAt", "desc")
+      where("studentId", "==", studentId)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(docToBooking);
+    return snap.docs.map(docToBooking).sort(sortDesc);
   }
 
   const all = await loadLocalBookings();
@@ -128,14 +127,14 @@ export function subscribeToStudentBookings(
     return () => {};
   }
 
+  // Single-field where — sort client-side to avoid composite index requirement
   const q = query(
     collection(db, "bookings"),
-    where("studentId", "==", studentId),
-    orderBy("createdAt", "desc")
+    where("studentId", "==", studentId)
   );
 
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(docToBooking));
+    callback(snap.docs.map(docToBooking).sort(sortDesc));
   });
 }
 
@@ -157,6 +156,10 @@ export async function cancelBooking(bookingId: string): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────
+
+function sortDesc(a: Booking, b: Booking): number {
+  return (b.date || "").localeCompare(a.date || "");
+}
 
 function docToBooking(d: any): Booking {
   const data = d.data();

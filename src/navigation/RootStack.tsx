@@ -14,6 +14,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
+import { navigationRef } from "./navigationRef";
 
 import { WelcomeScreen } from "../screens/WelcomeScreen";
 import { RoleSelectionScreen } from "../screens/RoleSelectionScreen";
@@ -24,6 +25,10 @@ import { PendingApprovalScreen } from "../screens/PendingApprovalScreen";
 import { EmergencyScreen } from "../screens/EmergencyScreen";
 import { DirectMessageScreen } from "../screens/DirectMessageScreen";
 import { AdminScreen } from "../screens/AdminScreen";
+import { CounselorListScreen } from "../screens/CounselorListScreen";
+import { PersonalDetailsScreen } from "../screens/PersonalDetailsScreen";
+import { PrivacySecurityScreen } from "../screens/PrivacySecurityScreen";
+import { AboutScreen } from "../screens/AboutScreen";
 import { MainTabs } from "./BottomTabs";
 
 export type RootStackParamList = {
@@ -36,6 +41,10 @@ export type RootStackParamList = {
   Emergency: undefined;
   DirectMessage: { chatId: string; otherName: string };
   Admin: undefined;
+  CounselorList: undefined;
+  PersonalDetails: undefined;
+  PrivacySecurity: undefined;
+  About: undefined;
   MainTabs: undefined;
 };
 
@@ -56,7 +65,7 @@ export function RootNavigator() {
   const isPending = profile?.status === "pending";
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -91,6 +100,26 @@ export function RootNavigator() {
               name="Admin"
               component={AdminScreen}
               options={{ headerShown: true, headerTitle: "Admin", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="CounselorList"
+              component={CounselorListScreen}
+              options={{ headerShown: true, headerTitle: "Explore Counselors", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="PersonalDetails"
+              component={PersonalDetailsScreen}
+              options={{ headerShown: true, headerTitle: "Personal Details", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="PrivacySecurity"
+              component={PrivacySecurityScreen}
+              options={{ headerShown: true, headerTitle: "Privacy & Security", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="About"
+              component={AboutScreen}
+              options={{ headerShown: true, headerTitle: "About Theraklick", headerTintColor: "#16A34A" }}
             />
           </Stack.Group>
         )}

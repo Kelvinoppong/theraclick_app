@@ -25,6 +25,7 @@ import {
   where,
   Unsubscribe,
   limit,
+  QueryConstraint,
 } from "firebase/firestore";
 
 import { db, firebaseIsReady } from "./firebase";
@@ -68,13 +69,15 @@ export async function loadForumPosts(
 ): Promise<ForumPost[]> {
   if (firebaseIsReady && db) {
     const col = collection(db, "forums");
-    const constraints = [orderBy("createdAt", "desc"), limit(50)];
-    if (category) {
-      constraints.unshift(where("category", "==", category));
-    }
+    // When filtering by category, skip orderBy to avoid composite index requirement
+    const constraints: QueryConstraint[] = category
+      ? [where("category", "==", category), limit(50)]
+      : [orderBy("createdAt", "desc"), limit(50)];
     const q = query(col, ...constraints);
     const snap = await getDocs(q);
-    return snap.docs.map(docToPost);
+    const posts = snap.docs.map(docToPost);
+    if (category) posts.sort((a, b) => b.createdAt - a.createdAt);
+    return posts;
   }
 
   const posts = await loadLocalPosts();
@@ -95,14 +98,15 @@ export function subscribeToForumPosts(
   }
 
   const col = collection(db, "forums");
-  const constraints = [orderBy("createdAt", "desc"), limit(50)];
-  if (category) {
-    constraints.unshift(where("category", "==", category));
-  }
+  const constraints: QueryConstraint[] = category
+    ? [where("category", "==", category), limit(50)]
+    : [orderBy("createdAt", "desc"), limit(50)];
   const q = query(col, ...constraints);
 
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(docToPost));
+    const posts = snap.docs.map(docToPost);
+    if (category) posts.sort((a, b) => b.createdAt - a.createdAt);
+    callback(posts);
   });
 }
 

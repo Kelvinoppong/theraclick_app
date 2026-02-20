@@ -84,24 +84,24 @@ export function subscribeToDmThreads(
     return () => {};
   }
 
+  // Single-field where avoids composite index requirement; sort client-side
   const q = query(
     collection(db, "directMessages"),
-    where("participants", "array-contains", uid),
-    orderBy("lastMessageAt", "desc")
+    where("participants", "array-contains", uid)
   );
 
   return onSnapshot(q, (snap) => {
-    callback(
-      snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          participants: data.participants ?? [],
-          lastMessage: data.lastMessage ?? "",
-          lastMessageAt: data.lastMessageAt?.toMillis?.() ?? Date.now(),
-        };
-      })
-    );
+    const chats = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        participants: data.participants ?? [],
+        lastMessage: data.lastMessage ?? "",
+        lastMessageAt: data.lastMessageAt?.toMillis?.() ?? Date.now(),
+      };
+    });
+    chats.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    callback(chats);
   });
 }
 

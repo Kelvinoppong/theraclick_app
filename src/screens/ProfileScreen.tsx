@@ -1,34 +1,40 @@
 /**
- * ProfileScreen — view profile, toggle anonymous mode, edit basics, log out.
+ * ProfileScreen — clean menu-list layout inspired by reference.
  *
- * Students get the anonymous toggle.
- * Mentors/Counselors see their application info.
+ * Hero avatar at top, then tappable rows with icons and chevrons
+ * that push to sub-screens (Personal Details, Privacy & Security, etc.).
  */
 
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Switch,
-  TextInput,
-  Alert,
   ScrollView,
-  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { useAuth } from "../context/AuthContext";
-import { db, firebaseIsReady } from "../services/firebase";
+import { sendImmediateNotification } from "../services/notifications";
+import { addNotification } from "../services/notificationStore";
+import type { RootStackParamList } from "../navigation/RootStack";
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+type MenuItem = {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+  badge?: string;
+};
 
 export function ProfileScreen() {
-  const { profile, user, logout, isFirebaseBacked } = useAuth();
-
-  const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState(profile?.fullName ?? "");
-  const [saving, setSaving] = useState(false);
+  const { profile, logout } = useAuth();
+  const nav = useNavigation<Nav>();
 
   const isStudent = profile?.role === "student";
   const displayName =
@@ -36,267 +42,237 @@ export function ProfileScreen() {
       ? profile.anonymousId
       : profile?.fullName || "User";
 
-  const handleToggleAnonymous = async (enabled: boolean) => {
-    if (!profile || !isStudent) return;
-    if (!firebaseIsReady || !db || !user) {
-      Alert.alert("Demo mode", "Anonymous toggle requires Firebase.");
-      return;
-    }
-
-    try {
-      const anonymousId = enabled
-        ? profile.anonymousId || generateAnonymousId()
-        : null;
-
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          anonymousEnabled: enabled,
-          anonymousId,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not update.");
-    }
-  };
-
-  const handleSaveName = async () => {
-    if (!newName.trim() || !firebaseIsReady || !db || !user) return;
-    setSaving(true);
-    try {
-      await setDoc(
-        doc(db, "users", user.uid),
-        { fullName: newName.trim(), updatedAt: serverTimestamp() },
-        { merge: true }
-      );
-      setEditingName(false);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not save.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const roleLabel = {
+  const roleLabel: Record<string, string> = {
     student: "Student",
     "peer-mentor": "Peer Mentor",
     counselor: "Counselor",
-  }[profile?.role ?? "student"];
+  };
+
+  const menuItems: MenuItem[] = [
+    {
+      icon: "👤",
+      label: "Personal Details",
+      onPress: () => nav.navigate("PersonalDetails" as any),
+    },
+    {
+      icon: "🔒",
+      label: "Privacy & Security",
+      onPress: () => nav.navigate("PrivacySecurity" as any),
+      badge: isStudent && profile?.anonymousEnabled ? "Anonymous" : undefined,
+    },
+    {
+      icon: "🔔",
+      label: "Notifications",
+      onPress: () => {
+        const title = "Theraklick";
+        const body = "Notifications are working! You'll get alerts for bookings and messages.";
+        sendImmediateNotification(title, body);
+        addNotification({ type: "system", title, body });
+      },
+    },
+    {
+      icon: "🆘",
+      label: "Help & Emergency",
+      onPress: () => nav.navigate("Emergency"),
+    },
+    {
+      icon: "📋",
+      label: "About Theraklick",
+      onPress: () => nav.navigate("About" as any),
+    },
+  ];
+
+  // Admin-only item
+  if (profile?.role === "counselor" || profile?.role === "peer-mentor") {
+    menuItems.push({
+      icon: "🛡️",
+      label: "Admin Panel",
+      onPress: () => nav.navigate("Admin"),
+    });
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Avatar placeholder */}
-        <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>
-            {displayName.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-
-        <Text style={styles.displayName}>{displayName}</Text>
-        <Text style={styles.roleLabel}>{roleLabel}</Text>
-        {profile?.email && (
-          <Text style={styles.email}>{profile.email}</Text>
-        )}
-
-        {/* Anonymous toggle (students only) */}
-        {isStudent && (
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingTitle}>Anonymous Mode</Text>
-              <Text style={styles.settingDesc}>
-                Hide your real name in chats and forums
+        {/* Avatar hero */}
+        <View style={styles.avatarSection}>
+          <View style={styles.avatarRing}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarText}>
+                {displayName.charAt(0).toUpperCase()}
               </Text>
             </View>
-            <Switch
-              value={profile?.anonymousEnabled ?? false}
-              onValueChange={handleToggleAnonymous}
-              trackColor={{ false: "#D1D5DB", true: "#86EFAC" }}
-              thumbColor={profile?.anonymousEnabled ? "#16A34A" : "#f4f3f4"}
-            />
           </View>
-        )}
 
-        {/* Edit name */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile</Text>
+          <Text style={styles.displayName}>{displayName}</Text>
+          <Text style={styles.email}>{profile?.email || "anonymous@theraklick"}</Text>
+          <View style={styles.rolePill}>
+            <Text style={styles.rolePillText}>
+              {roleLabel[profile?.role ?? ""] || "User"}
+            </Text>
+          </View>
+        </View>
 
-          {editingName ? (
-            <View style={styles.editRow}>
-              <TextInput
-                style={styles.editInput}
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="Full Name"
-                placeholderTextColor="#9CA3AF"
-              />
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveName} disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.saveBtnText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          ) : (
+        {/* Menu list */}
+        <View style={styles.menuCard}>
+          {menuItems.map((item, i) => (
             <TouchableOpacity
-              style={styles.editTrigger}
-              onPress={() => {
-                setNewName(profile?.fullName ?? "");
-                setEditingName(true);
-              }}
+              key={item.label}
+              style={[
+                styles.menuRow,
+                i < menuItems.length - 1 && styles.menuRowBorder,
+              ]}
+              onPress={item.onPress}
+              activeOpacity={0.6}
             >
-              <Text style={styles.editTriggerLabel}>Full Name</Text>
-              <Text style={styles.editTriggerValue}>
-                {profile?.fullName || "Not set"} →
+              <Text style={styles.menuIcon}>{item.icon}</Text>
+              <Text
+                style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}
+              >
+                {item.label}
               </Text>
+              {item.badge && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.badge}</Text>
+                </View>
+              )}
+              <Text style={styles.chevron}>›</Text>
             </TouchableOpacity>
-          )}
-
-          {profile?.student && (
-            <>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>School</Text>
-                <Text style={styles.infoValue}>{profile.student.school || "—"}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Level</Text>
-                <Text style={styles.infoValue}>{profile.student.educationLevel || "—"}</Text>
-              </View>
-            </>
-          )}
-
-          {profile?.application && (
-            <>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Specialization</Text>
-                <Text style={styles.infoValue}>{profile.application.specialization || "—"}</Text>
-              </View>
-            </>
-          )}
+          ))}
         </View>
 
-        {/* Status */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Status</Text>
-            <Text style={[styles.infoValue, { color: profile?.status === "active" ? "#16A34A" : "#F59E0B" }]}>
-              {profile?.status ?? "unknown"}
+        {/* Log out — separate card for visual weight */}
+        <View style={styles.menuCard}>
+          <TouchableOpacity
+            style={styles.menuRow}
+            onPress={logout}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.menuIcon}>🚪</Text>
+            <Text style={[styles.menuLabel, styles.menuLabelDanger]}>
+              Log out
             </Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Firebase</Text>
-            <Text style={styles.infoValue}>
-              {isFirebaseBacked ? "Connected" : "Demo mode"}
-            </Text>
-          </View>
+            <Text style={[styles.chevron, styles.chevronDanger]}>›</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
+        <Text style={styles.version}>Theraklick v1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function generateAnonymousId() {
-  const adj = ["calm", "quiet", "brave", "gentle", "kind", "steady", "soft", "bright"];
-  const animals = ["zebra", "gazelle", "lion", "dove", "panda", "otter", "turtle", "falcon"];
-  const a = adj[Math.floor(Math.random() * adj.length)]!;
-  const b = animals[Math.floor(Math.random() * animals.length)]!;
-  return `${a}${b}${Math.random().toString(36).slice(2, 4)}`;
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0FDF4" },
-  scroll: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 60, alignItems: "center" },
+  scroll: { paddingBottom: 40 },
+
+  /* Avatar hero */
+  avatarSection: {
+    alignItems: "center",
+    paddingTop: 20,
+    paddingBottom: 28,
+  },
+  avatarRing: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    borderWidth: 3,
+    borderColor: "#BBF7D0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
   avatarCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 94,
+    height: 94,
+    borderRadius: 47,
     backgroundColor: "#16A34A",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 12,
   },
-  avatarText: { fontSize: 28, fontWeight: "800", color: "#FFFFFF" },
-  displayName: { fontSize: 22, fontWeight: "800", color: "#111827", marginBottom: 2 },
-  roleLabel: { fontSize: 13, fontWeight: "600", color: "#16A34A", marginBottom: 2 },
-  email: { fontSize: 13, color: "#6B7280", marginBottom: 20 },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 20,
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  settingInfo: { flex: 1 },
-  settingTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  settingDesc: { fontSize: 12, color: "#6B7280", marginTop: 2 },
-  section: { width: "100%", marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111827", marginBottom: 10 },
-  editRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  editInput: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+  avatarText: { fontSize: 36, fontWeight: "800", color: "#FFFFFF" },
+  displayName: {
+    fontSize: 22,
+    fontWeight: "800",
     color: "#111827",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    marginBottom: 2,
   },
-  saveBtn: {
-    backgroundColor: "#16A34A",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    justifyContent: "center",
+  email: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 10,
   },
-  saveBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
-  editTrigger: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+  rolePill: {
+    backgroundColor: "#DCFCE7",
+    borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 8,
+    paddingVertical: 5,
   },
-  editTriggerLabel: { fontSize: 14, color: "#6B7280" },
-  editTriggerValue: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  rolePillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#16A34A",
+  },
+
+  /* Menu card */
+  menuCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 8,
+    borderRadius: 18,
+    marginHorizontal: 20,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  infoLabel: { fontSize: 14, color: "#6B7280" },
-  infoValue: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  logoutBtn: {
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    borderRadius: 14,
-    paddingVertical: 14,
+  menuRow: {
+    flexDirection: "row",
     alignItems: "center",
-    width: "100%",
-    marginTop: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
-  logoutText: { color: "#DC2626", fontSize: 15, fontWeight: "600" },
+  menuRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  menuIcon: {
+    fontSize: 20,
+    width: 32,
+  },
+  menuLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  menuLabelDanger: {
+    color: "#DC2626",
+  },
+  badge: {
+    backgroundColor: "#DCFCE7",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 8,
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#16A34A",
+  },
+  chevron: {
+    fontSize: 22,
+    color: "#D1D5DB",
+    fontWeight: "300",
+  },
+  chevronDanger: {
+    color: "#FECACA",
+  },
+  version: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 10,
+  },
 });

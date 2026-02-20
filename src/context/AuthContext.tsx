@@ -36,6 +36,8 @@ import {
 } from "firebase/firestore";
 
 import { auth, db, firebaseIsReady } from "../services/firebase";
+import { registerForPushNotifications } from "../services/notifications";
+import { addNotification } from "../services/notificationStore";
 import type { UserRole, AccountStatus, UserProfile } from "../shared/types";
 
 // ── Types ────────────────────────────────────────────
@@ -205,6 +207,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (u) {
             const p = await ensureFirestoreProfile(u.uid);
             if (p) setProfile(p);
+
+            // Register device for push notifications
+            registerForPushNotifications(u.uid).catch(() => {});
+
+            // Welcome notification in the in-app feed
+            addNotification({
+              type: "system",
+              title: "Welcome back!",
+              body: `Signed in as ${p?.fullName || p?.email || "user"}. Your safe space is ready.`,
+            }).catch(() => {});
 
             // Real-time listener for profile updates (e.g. admin approvals)
             const profileRef = doc(db!, "users", u.uid);
