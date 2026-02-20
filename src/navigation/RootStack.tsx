@@ -25,6 +25,8 @@ import { PendingApprovalScreen } from "../screens/PendingApprovalScreen";
 import { EmergencyScreen } from "../screens/EmergencyScreen";
 import { DirectMessageScreen } from "../screens/DirectMessageScreen";
 import { AdminScreen } from "../screens/AdminScreen";
+import { AllUsersScreen } from "../screens/AllUsersScreen";
+import { ApprovalsScreen } from "../screens/ApprovalsScreen";
 import { CounselorListScreen } from "../screens/CounselorListScreen";
 import { ForumChannelScreen } from "../screens/ForumChannelScreen";
 import { PersonalDetailsScreen } from "../screens/PersonalDetailsScreen";
@@ -42,6 +44,8 @@ export type RootStackParamList = {
   Emergency: undefined;
   DirectMessage: { chatId: string; otherName: string };
   Admin: undefined;
+  AllUsers: undefined;
+  Approvals: undefined;
   CounselorList: undefined;
   ForumChannel: { channelId: string; channelName: string };
   PersonalDetails: undefined;
@@ -102,6 +106,16 @@ export function RootNavigator() {
               name="Admin"
               component={AdminScreen}
               options={{ headerShown: true, headerTitle: "Admin", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="AllUsers"
+              component={AllUsersScreen}
+              options={{ headerShown: true, headerTitle: "All Users", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="Approvals"
+              component={ApprovalsScreen}
+              options={{ headerShown: true, headerTitle: "Approvals", headerTintColor: "#16A34A" }}
             />
             <Stack.Screen
               name="CounselorList"

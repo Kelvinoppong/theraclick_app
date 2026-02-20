@@ -3,7 +3,7 @@
  * Keep in sync with Kelvinoppong/theraclick context/auth.tsx + firestore.rules.
  */
 
-export type UserRole = "student" | "peer-mentor" | "counselor";
+export type UserRole = "student" | "peer-mentor" | "counselor" | "admin";
 export type AccountStatus = "active" | "pending" | "disabled";
 
 export type UserProfile = {
@@ -51,6 +51,13 @@ export type UserContext = {
   school?: string;
   educationLevel?: string;
   country?: string;
+};
+
+export type ChatThread = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  createdAt: number;
 };
 
 export type AiChatResponse = {
