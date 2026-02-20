@@ -36,6 +36,13 @@
           "color": "#16A34A",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Theraklick needs camera access for video calls",
+          "microphonePermission": "Theraklick needs microphone access for calls"
+        }
       ]
     ]
   }

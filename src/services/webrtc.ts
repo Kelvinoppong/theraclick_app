@@ -1,61 +1,178 @@
 /**
- * WebRTC peer connection wrapper — STUB for Expo Go.
+ * WebRTC peer connection wrapper.
  *
- * The real implementation requires `react-native-webrtc` (native module),
- * which only works in a development build. This stub provides the same
- * API surface but shows an alert instead of actually connecting.
+ * Manages a single RTCPeerConnection lifecycle:
+ *   - Local/remote media streams (audio + video)
+ *   - SDP offer/answer creation
+ *   - ICE candidate handling
+ *   - Cleanup
  *
- * To enable real WebRTC:
- *   1. npx expo install react-native-webrtc @config-plugins/react-native-webrtc
- *   2. Add the plugin to app.json
- *   3. npx expo prebuild && npx expo run:android
- *   4. Replace this file with the real implementation
+ * Uses Google's free STUN servers for NAT traversal.
  */
+
+import {
+  RTCPeerConnection,
+  RTCSessionDescription,
+  RTCIceCandidate,
+  mediaDevices,
+  MediaStream,
+} from "react-native-webrtc";
+
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+  ],
+};
 
 export type CallType = "audio" | "video";
 
-const STUB_WARNING =
-  "Audio/video calls require a development build. Currently running in Expo Go (limited mode).";
+let peerConnection: RTCPeerConnection | null = null;
+let localStream: MediaStream | null = null;
+let remoteStream: MediaStream | null = null;
 
-export async function getLocalStream(_type: CallType): Promise<null> {
-  console.warn(STUB_WARNING);
-  return null;
+export const WEBRTC_AVAILABLE = true;
+
+/* ─── Get local media stream ─── */
+
+export async function getLocalStream(
+  type: CallType
+): Promise<MediaStream> {
+  const constraints = {
+    audio: true,
+    video: type === "video" ? { facingMode: "user" } : false,
+  };
+
+  const stream = await mediaDevices.getUserMedia(constraints);
+  localStream = stream as MediaStream;
+  return localStream;
 }
+
+/* ─── Create peer connection ─── */
 
 export function createPeerConnection(
-  _onIceCandidate: (candidate: any) => void,
-  _onRemoteStream: (stream: any) => void
-): null {
-  console.warn(STUB_WARNING);
-  return null;
+  onIceCandidate: (candidate: RTCIceCandidate) => void,
+  onRemoteStream: (stream: MediaStream) => void
+): RTCPeerConnection {
+  peerConnection = new RTCPeerConnection(ICE_CONFIG);
+
+  peerConnection.addEventListener("icecandidate", (event: any) => {
+    if (event.candidate) {
+      onIceCandidate(event.candidate);
+    }
+  });
+
+  peerConnection.addEventListener("track", (event: any) => {
+    if (event.streams && event.streams[0]) {
+      remoteStream = event.streams[0];
+      onRemoteStream(remoteStream);
+    }
+  });
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => {
+      peerConnection!.addTrack(track, localStream!);
+    });
+  }
+
+  return peerConnection;
 }
+
+/* ─── Create SDP offer (caller side) ─── */
 
 export async function createOffer(): Promise<string> {
-  throw new Error(STUB_WARNING);
+  if (!peerConnection) throw new Error("No peer connection");
+
+  const offer = await peerConnection.createOffer({});
+  await peerConnection.setLocalDescription(offer);
+  return JSON.stringify(offer);
 }
 
-export async function handleOffer(_offerJson: string): Promise<string> {
-  throw new Error(STUB_WARNING);
+/* ─── Handle incoming SDP offer (receiver side) ─── */
+
+export async function handleOffer(offerJson: string): Promise<string> {
+  if (!peerConnection) throw new Error("No peer connection");
+
+  const offer = JSON.parse(offerJson);
+  await peerConnection.setRemoteDescription(
+    new RTCSessionDescription(offer)
+  );
+
+  const answer = await peerConnection.createAnswer();
+  await peerConnection.setLocalDescription(answer);
+  return JSON.stringify(answer);
 }
 
-export async function handleAnswer(_answerJson: string): Promise<void> {
-  throw new Error(STUB_WARNING);
+/* ─── Handle incoming SDP answer (caller side) ─── */
+
+export async function handleAnswer(answerJson: string): Promise<void> {
+  if (!peerConnection) throw new Error("No peer connection");
+
+  const answer = JSON.parse(answerJson);
+  await peerConnection.setRemoteDescription(
+    new RTCSessionDescription(answer)
+  );
 }
 
-export async function addIceCandidate(_candidateJson: string): Promise<void> {}
+/* ─── Add ICE candidate from remote peer ─── */
 
-export function toggleMute(_muted: boolean): void {}
-export function toggleCamera(_off: boolean): void {}
-export function switchCamera(): void {}
+export async function addIceCandidate(candidateJson: string): Promise<void> {
+  if (!peerConnection) return;
+
+  try {
+    const candidate = JSON.parse(candidateJson);
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (e) {
+    console.warn("Failed to add ICE candidate:", e);
+  }
+}
+
+/* ─── Toggle mute (audio) ─── */
+
+export function toggleMute(muted: boolean): void {
+  if (!localStream) return;
+  localStream.getAudioTracks().forEach((track) => {
+    track.enabled = !muted;
+  });
+}
+
+/* ─── Toggle camera (video) ─── */
+
+export function toggleCamera(off: boolean): void {
+  if (!localStream) return;
+  localStream.getVideoTracks().forEach((track) => {
+    track.enabled = !off;
+  });
+}
+
+/* ─── Switch front/back camera ─── */
+
+export function switchCamera(): void {
+  if (!localStream) return;
+  const videoTrack = localStream.getVideoTracks()[0];
+  if (videoTrack && typeof (videoTrack as any)._switchCamera === "function") {
+    (videoTrack as any)._switchCamera();
+  }
+}
+
+/* ─── Get current streams ─── */
 
 export function getStreams() {
-  return { localStream: null, remoteStream: null };
+  return { localStream, remoteStream };
 }
 
-export function cleanup(): void {}
+/* ─── Cleanup everything ─── */
 
-/**
- * Flag indicating whether real WebRTC is available.
- * UI code checks this to show "coming soon" vs actual call controls.
- */
-export const WEBRTC_AVAILABLE = false;
+export function cleanup(): void {
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+    localStream = null;
+  }
+  remoteStream = null;
+
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+}
