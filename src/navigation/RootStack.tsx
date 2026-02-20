@@ -26,6 +26,7 @@ import { EmergencyScreen } from "../screens/EmergencyScreen";
 import { DirectMessageScreen } from "../screens/DirectMessageScreen";
 import { AdminScreen } from "../screens/AdminScreen";
 import { CounselorListScreen } from "../screens/CounselorListScreen";
+import { ForumChannelScreen } from "../screens/ForumChannelScreen";
 import { PersonalDetailsScreen } from "../screens/PersonalDetailsScreen";
 import { PrivacySecurityScreen } from "../screens/PrivacySecurityScreen";
 import { AboutScreen } from "../screens/AboutScreen";
@@ -42,6 +43,7 @@ export type RootStackParamList = {
   DirectMessage: { chatId: string; otherName: string };
   Admin: undefined;
   CounselorList: undefined;
+  ForumChannel: { channelId: string; channelName: string };
   PersonalDetails: undefined;
   PrivacySecurity: undefined;
   About: undefined;
@@ -105,6 +107,15 @@ export function RootNavigator() {
               name="CounselorList"
               component={CounselorListScreen}
               options={{ headerShown: true, headerTitle: "Explore Counselors", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="ForumChannel"
+              component={ForumChannelScreen}
+              options={({ route }) => ({
+                headerShown: true,
+                headerTitle: `# ${(route.params as any)?.channelName || "channel"}`,
+                headerTintColor: "#16A34A",
+              })}
             />
             <Stack.Screen
               name="PersonalDetails"

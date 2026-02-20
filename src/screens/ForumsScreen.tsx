@@ -1,274 +1,208 @@
 /**
- * ForumsScreen — anonymous community support backed by Firestore.
+ * ForumsScreen — Slack/Discord-style channel list for the community.
  *
- * Real-time listener updates posts as they come in.
- * Users can create posts and report inappropriate content.
+ * Channels are grouped by section. Each channel row shows:
+ *   - # prefix, name, optional description
+ *   - Unread badge count
+ * Tapping a channel navigates to ForumChannelScreen.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  FlatList,
-  TextInput,
-  Alert,
-  RefreshControl,
+  SectionList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/RootStack";
 
-import { useAuth } from "../context/AuthContext";
-import {
-  createForumPost,
-  flagForumPost,
-  subscribeToForumPosts,
-} from "../services/forumStore";
-import type { ForumPost } from "../shared/types";
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const CATEGORIES = [
-  { id: "exams", label: "Exams & Academics", emoji: "📚" },
-  { id: "anxiety", label: "Anxiety & Stress", emoji: "😰" },
-  { id: "relationships", label: "Relationships", emoji: "💛" },
-  { id: "vent", label: "General / Vent", emoji: "💭" },
+type Channel = {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+};
+
+type Section = {
+  title: string;
+  data: Channel[];
+};
+
+const SECTIONS: Section[] = [
+  {
+    title: "Support",
+    data: [
+      { id: "anxiety", name: "anxiety-stress", description: "Share what's weighing on you", emoji: "😰" },
+      { id: "vent", name: "general-vent", description: "Let it out, no judgment", emoji: "💭" },
+      { id: "relationships", name: "relationships", description: "Love, friendship, family", emoji: "💛" },
+    ],
+  },
+  {
+    title: "Academic",
+    data: [
+      { id: "exams", name: "exams-academics", description: "Study stress & school pressure", emoji: "📚" },
+      { id: "career", name: "career-future", description: "Career anxiety & planning", emoji: "🎯" },
+    ],
+  },
+  {
+    title: "Community",
+    data: [
+      { id: "announcements", name: "announcements", description: "Updates from the team", emoji: "📢" },
+      { id: "wins", name: "wins-gratitude", description: "Celebrate small victories", emoji: "🎉" },
+      { id: "resources", name: "resources", description: "Helpful links & tips", emoji: "📎" },
+    ],
+  },
 ];
 
 export function ForumsScreen() {
-  const { profile } = useAuth();
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [posts, setPosts] = useState<ForumPost[]>([]);
-  const [newPost, setNewPost] = useState("");
-  const [posting, setPosting] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const nav = useNavigation<Nav>();
 
-  // Real-time listener
-  useEffect(() => {
-    const unsub = subscribeToForumPosts(selectedCategory, setPosts);
-    return () => unsub();
-  }, [selectedCategory]);
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    const unsub = subscribeToForumPosts(selectedCategory, (p) => {
-      setPosts(p);
-      setRefreshing(false);
+  const handleChannelPress = (channel: Channel) => {
+    nav.navigate("ForumChannel" as any, {
+      channelId: channel.id,
+      channelName: channel.name,
     });
-    return () => unsub();
-  }, [selectedCategory]);
-
-  const handlePost = async () => {
-    const text = newPost.trim();
-    if (!text || !profile) return;
-
-    setPosting(true);
-    try {
-      await createForumPost({
-        authorId: profile.uid,
-        anonymousName:
-          profile.anonymousEnabled && profile.anonymousId
-            ? profile.anonymousId
-            : profile.fullName || "anonymous",
-        content: text,
-        category: selectedCategory || "vent",
-      });
-      setNewPost("");
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not create post.");
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  const handleReport = (postId: string) => {
-    Alert.alert("Report Post", "Flag this post for review by moderators?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Report",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await flagForumPost(postId);
-            Alert.alert("Reported", "Thank you. A moderator will review this.");
-          } catch {
-            Alert.alert("Error", "Could not report post.");
-          }
-        },
-      },
-    ]);
-  };
-
-  const formatTime = (ts: number) => {
-    const diff = Date.now() - ts;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.heading}>Community</Text>
-      <Text style={styles.subtitle}>Anonymous, supportive, judgment-free</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>Community</Text>
+          <Text style={styles.headerSubtitle}>Anonymous, supportive, judgment-free</Text>
+        </View>
+      </View>
 
-      {/* Category pills */}
-      <FlatList
-        horizontal
-        data={CATEGORIES}
-        keyExtractor={(c) => c.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.pills}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[
-              styles.pill,
-              selectedCategory === item.id && styles.pillActive,
-            ]}
-            onPress={() =>
-              setSelectedCategory(
-                selectedCategory === item.id ? null : item.id
-              )
-            }
-          >
-            <Text
-              style={[
-                styles.pillText,
-                selectedCategory === item.id && styles.pillTextActive,
-              ]}
-            >
-              {item.emoji} {item.label}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
+      {/* Welcome banner */}
+      <View style={styles.banner}>
+        <Text style={styles.bannerEmoji}>🌿</Text>
+        <View style={styles.bannerText}>
+          <Text style={styles.bannerTitle}>Welcome to the community</Text>
+          <Text style={styles.bannerBody}>
+            Everything shared here is anonymous. Be kind, be real.
+          </Text>
+        </View>
+      </View>
 
-      {/* Posts */}
-      <FlatList
-        data={posts}
-        keyExtractor={(p) => p.id}
-        contentContainerStyle={styles.posts}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#16A34A" />
-        }
-        renderItem={({ item }) => (
-          <View style={styles.postCard}>
-            <View style={styles.postHeader}>
-              <Text style={styles.postAuthor}>{item.anonymousName}</Text>
-              <Text style={styles.postTime}>{formatTime(item.createdAt)}</Text>
-            </View>
-            <Text style={styles.postContent}>{item.content}</Text>
-            <TouchableOpacity
-              style={styles.reportBtn}
-              onPress={() => handleReport(item.id)}
-            >
-              <Text style={styles.reportText}>Report</Text>
-            </TouchableOpacity>
+      {/* Channel list */}
+      <SectionList
+        sections={SECTIONS}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        stickySectionHeadersEnabled={false}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
           </View>
         )}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            No posts yet. Be the first to share.
-          </Text>
-        }
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={styles.channelRow}
+            onPress={() => handleChannelPress(item)}
+            activeOpacity={0.6}
+          >
+            <View style={styles.channelIcon}>
+              <Text style={styles.channelEmoji}>{item.emoji}</Text>
+            </View>
+            <View style={styles.channelInfo}>
+              <Text style={styles.channelName}># {item.name}</Text>
+              <Text style={styles.channelDesc} numberOfLines={1}>
+                {item.description}
+              </Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+        )}
+        renderSectionFooter={() => <View style={styles.sectionGap} />}
       />
-
-      {/* Compose */}
-      <View style={styles.compose}>
-        <TextInput
-          style={styles.composeInput}
-          placeholder="Share something (anonymous)..."
-          placeholderTextColor="#9CA3AF"
-          value={newPost}
-          onChangeText={setNewPost}
-          multiline
-          maxLength={1000}
-        />
-        <TouchableOpacity
-          style={[styles.postBtn, (posting || !newPost.trim()) && styles.postBtnDisabled]}
-          onPress={handlePost}
-          disabled={posting || !newPost.trim()}
-        >
-          <Text style={styles.postBtnText}>{posting ? "..." : "Post"}</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0FDF4" },
-  heading: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#111827",
+
+  header: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  subtitle: {
-    fontSize: 13,
-    color: "#6B7280",
-    paddingHorizontal: 20,
-    marginBottom: 14,
-  },
-  pills: { paddingHorizontal: 16, gap: 8, marginBottom: 14 },
-  pill: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  pillActive: { backgroundColor: "#16A34A", borderColor: "#16A34A" },
-  pillText: { fontSize: 12, fontWeight: "600", color: "#374151" },
-  pillTextActive: { color: "#FFFFFF" },
-  posts: { paddingHorizontal: 20, paddingBottom: 12, gap: 12 },
-  postCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  postHeader: {
+  headerTitle: { fontSize: 24, fontWeight: "800", color: "#111827" },
+  headerSubtitle: { fontSize: 13, color: "#6B7280", marginTop: 2 },
+
+  banner: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    backgroundColor: "#DCFCE7",
+    marginHorizontal: 20,
+    marginTop: 14,
     marginBottom: 6,
+    borderRadius: 14,
+    padding: 14,
+    gap: 12,
   },
-  postAuthor: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
-  postTime: { fontSize: 11, color: "#9CA3AF" },
-  postContent: { fontSize: 14, color: "#374151", lineHeight: 22 },
-  reportBtn: { marginTop: 10, alignSelf: "flex-end" },
-  reportText: { fontSize: 11, color: "#9CA3AF", fontWeight: "600" },
-  empty: { fontSize: 14, color: "#9CA3AF", textAlign: "center", marginTop: 32 },
-  compose: {
+  bannerEmoji: { fontSize: 28 },
+  bannerText: { flex: 1 },
+  bannerTitle: { fontSize: 14, fontWeight: "700", color: "#065F46", marginBottom: 2 },
+  bannerBody: { fontSize: 12, color: "#047857", lineHeight: 17 },
+
+  list: { paddingBottom: 20 },
+
+  sectionHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 6,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#9CA3AF",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  sectionGap: { height: 4 },
+
+  channelRow: {
     flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    borderRadius: 12,
+  },
+  channelIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    gap: 8,
-    alignItems: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
-  composeInput: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 14,
+  channelEmoji: { fontSize: 18 },
+  channelInfo: { flex: 1 },
+  channelName: {
+    fontSize: 15,
+    fontWeight: "600",
     color: "#111827",
-    maxHeight: 80,
+    marginBottom: 1,
   },
-  postBtn: {
-    backgroundColor: "#16A34A",
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+  channelDesc: {
+    fontSize: 12,
+    color: "#6B7280",
   },
-  postBtnDisabled: { opacity: 0.4 },
-  postBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+  chevron: {
+    fontSize: 20,
+    color: "#D1D5DB",
+    fontWeight: "300",
+  },
 });

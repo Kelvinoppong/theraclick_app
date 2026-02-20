@@ -11,6 +11,7 @@
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
@@ -29,6 +30,7 @@ export const firebaseIsDemo = Object.values(firebaseConfig).some(
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
+let storage: FirebaseStorage | undefined;
 
 try {
   if (getApps().length === 0) {
@@ -43,9 +45,10 @@ try {
   });
 
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   console.error("Firebase initialization error:", error);
 }
 
-export { app, auth, db };
+export { app, auth, db, storage };
 export const firebaseIsReady = !!auth && !!db && !firebaseIsDemo;

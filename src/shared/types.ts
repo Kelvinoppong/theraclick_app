@@ -68,6 +68,9 @@ export type ForumPost = {
   category: string;
   createdAt: number;
   flagged: boolean;
+  mediaUrl?: string;
+  mediaType?: string;
+  mediaName?: string;
 };
 
 export type Booking = {

@@ -40,6 +40,9 @@ export async function createForumPost(post: {
   anonymousName: string;
   content: string;
   category: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  mediaName?: string;
 }): Promise<string> {
   if (firebaseIsReady && db) {
     const ref = await addDoc(collection(db, "forums"), {
@@ -137,6 +140,9 @@ function docToPost(d: any): ForumPost {
     category: data.category ?? "vent",
     createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
     flagged: !!data.flagged,
+    mediaUrl: data.mediaUrl,
+    mediaType: data.mediaType,
+    mediaName: data.mediaName,
   };
 }
 
