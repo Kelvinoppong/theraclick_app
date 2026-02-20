@@ -22,6 +22,8 @@ import {
   sendDirectMessage,
   DirectMessage,
 } from "../services/messagingStore";
+import { sendImmediateNotification } from "../services/notifications";
+import { addNotification } from "../services/notificationStore";
 
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
@@ -57,6 +59,20 @@ export function DirectMessageScreen({ route }: Props) {
     setSending(true);
     try {
       await sendDirectMessage(chatId, profile.uid, text);
+
+      // Notify the other person (local push + in-app feed)
+      const senderName = profile.fullName || "Someone";
+      const title = `New message from ${senderName}`;
+      const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
+
+      sendImmediateNotification(title, preview);
+      addNotification({
+        type: "dm_received",
+        title,
+        body: preview,
+        screen: "DirectMessage",
+        data: { chatId, otherName },
+      });
     } finally {
       setSending(false);
     }

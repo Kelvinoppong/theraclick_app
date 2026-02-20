@@ -1,7 +1,12 @@
 /**
- * CounselorDashboardScreen — Counselor home.
+ * CounselorDashboardScreen — counselor home with booking management.
  *
- * Shows: upcoming bookings, DM threads, quick stats.
+ * Shows:
+ *   - Stats (pending requests, confirmed, total)
+ *   - "Manage Availability" button
+ *   - Pending booking requests with Accept / Reject
+ *   - Confirmed upcoming sessions with "Message" button
+ *   - DM threads
  */
 
 import React, { useEffect, useState } from "react";
@@ -10,35 +15,58 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  FlatList,
   ScrollView,
+  Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
 
 import { useAuth } from "../context/AuthContext";
-import { db, firebaseIsReady } from "../services/firebase";
+import {
+  subscribeToCounselorBookings,
+  confirmBooking,
+  rejectBooking,
+} from "../services/bookingStore";
 import {
   subscribeToDmThreads,
   DirectChat,
 } from "../services/messagingStore";
 import type { Booking } from "../shared/types";
+import type { RootStackParamList } from "../navigation/RootStack";
 
-type Nav = NativeStackNavigationProp<any>;
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  pending: { bg: "#FEF3C7", text: "#D97706" },
+  confirmed: { bg: "#DCFCE7", text: "#16A34A" },
+  completed: { bg: "#E0E7FF", text: "#6366F1" },
+  cancelled: { bg: "#FEE2E2", text: "#DC2626" },
+};
 
 export function CounselorDashboardScreen() {
-  const { profile, logout } = useAuth();
+  const { profile } = useAuth();
   const nav = useNavigation<Nav>();
 
-  const [threads, setThreads] = useState<DirectChat[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [threads, setThreads] = useState<DirectChat[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    const unsub = subscribeToCounselorBookings(profile.uid, setBookings);
+    return () => unsub();
+  }, [profile]);
 
   useEffect(() => {
     if (!profile) return;
@@ -46,78 +74,202 @@ export function CounselorDashboardScreen() {
     return () => unsub();
   }, [profile]);
 
-  useEffect(() => {
-    if (!profile || !firebaseIsReady || !db) return;
-    (async () => {
-      const q = query(
-        collection(db, "bookings"),
-        where("counselorId", "==", profile.uid)
-      );
-      const snap = await getDocs(q);
-      const results = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          studentId: data.studentId ?? "",
-          counselorId: data.counselorId ?? "",
-          date: data.date ?? "",
-          time: data.time ?? "",
-          status: data.status ?? "pending",
-          notes: data.notes,
-        };
-      });
-      results.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      setBookings(results);
-    })();
-  }, [profile]);
+  const pendingBookings = bookings.filter((b) => b.status === "pending");
+  const confirmedBookings = bookings.filter((b) => b.status === "confirmed");
 
-  const displayName = profile?.fullName || "Counselor";
-  const activeBookings = bookings.filter(
-    (b) => b.status === "pending" || b.status === "confirmed"
-  );
+  const handleConfirm = (b: Booking) => {
+    Alert.alert(
+      "Confirm Session",
+      `Accept ${b.studentName || "student"}'s request for ${formatDate(b.date)} at ${b.time}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            try {
+              await confirmBooking(b.id, b);
+              Alert.alert("Confirmed!", "A chat thread has been created.");
+            } catch (e: any) {
+              Alert.alert("Error", e?.message || "Could not confirm.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleReject = (b: Booking) => {
+    Alert.alert(
+      "Reject Request",
+      `Reject ${b.studentName || "student"}'s booking?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reject",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await rejectBooking(b.id);
+            } catch {
+              Alert.alert("Error", "Could not reject.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const displayName = profile?.fullName?.split(" ")[0] || "Counselor";
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} tintColor="#16A34A" />
+        }
+      >
+        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Hi, {displayName}</Text>
-            <Text style={styles.role}>Counselor</Text>
+            <Text style={styles.role}>Counselor Dashboard</Text>
           </View>
-          <TouchableOpacity onPress={logout}>
-            <Text style={styles.logoutText}>Log out</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNum}>{activeBookings.length}</Text>
-            <Text style={styles.statLabel}>Upcoming</Text>
+          <View style={[styles.statCard, { borderLeftColor: "#F59E0B" }]}>
+            <Text style={styles.statNum}>{pendingBookings.length}</Text>
+            <Text style={styles.statLabel}>Pending</Text>
           </View>
-          <View style={styles.statCard}>
+          <View style={[styles.statCard, { borderLeftColor: "#16A34A" }]}>
+            <Text style={styles.statNum}>{confirmedBookings.length}</Text>
+            <Text style={styles.statLabel}>Confirmed</Text>
+          </View>
+          <View style={[styles.statCard, { borderLeftColor: "#6366F1" }]}>
             <Text style={styles.statNum}>{threads.length}</Text>
-            <Text style={styles.statLabel}>Messages</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNum}>{bookings.length}</Text>
-            <Text style={styles.statLabel}>Total</Text>
+            <Text style={styles.statLabel}>Chats</Text>
           </View>
         </View>
 
-        {/* Upcoming bookings */}
-        <Text style={styles.sectionTitle}>Upcoming Sessions</Text>
-        {activeBookings.length === 0 ? (
-          <Text style={styles.empty}>No upcoming sessions.</Text>
+        {/* Manage Availability */}
+        <TouchableOpacity
+          style={styles.availabilityBtn}
+          onPress={() => nav.navigate("CounselorAvailability")}
+        >
+          <Text style={styles.availabilityIcon}>📅</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.availabilityTitle}>Manage Availability</Text>
+            <Text style={styles.availabilitySubtext}>
+              Set your available dates and times
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+
+        {/* Pending Requests */}
+        <Text style={styles.sectionTitle}>
+          Pending Requests ({pendingBookings.length})
+        </Text>
+        {pendingBookings.length === 0 ? (
+          <Text style={styles.empty}>No pending requests.</Text>
         ) : (
-          activeBookings.map((b) => (
+          pendingBookings.map((b) => (
             <View key={b.id} style={styles.bookingCard}>
-              <Text style={styles.bookingTime}>
-                {b.date} — {b.time}
-              </Text>
-              <Text style={styles.bookingStatus}>{b.status}</Text>
+              <View style={styles.bookingTop}>
+                <View style={styles.bookingAvatar}>
+                  <Text style={styles.bookingAvatarText}>
+                    {(b.studentName?.[0] || "S").toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.bookingInfo}>
+                  <Text style={styles.bookingName}>
+                    {b.studentName || "Student"}
+                  </Text>
+                  <Text style={styles.bookingDate}>
+                    {formatDate(b.date)} at {b.time}
+                  </Text>
+                  {b.notes && (
+                    <Text style={styles.bookingNotes}>{b.notes}</Text>
+                  )}
+                </View>
+              </View>
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  style={styles.confirmBtn}
+                  onPress={() => handleConfirm(b)}
+                >
+                  <Text style={styles.confirmBtnText}>Accept</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.rejectBtn}
+                  onPress={() => handleReject(b)}
+                >
+                  <Text style={styles.rejectBtnText}>Reject</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))
+        )}
+
+        {/* Confirmed Sessions */}
+        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
+          Upcoming Sessions ({confirmedBookings.length})
+        </Text>
+        {confirmedBookings.length === 0 ? (
+          <Text style={styles.empty}>No confirmed sessions.</Text>
+        ) : (
+          confirmedBookings.map((b) => {
+            const sc = STATUS_COLORS.confirmed;
+            return (
+              <View key={b.id} style={styles.bookingCard}>
+                <View style={styles.bookingTop}>
+                  <View
+                    style={[
+                      styles.bookingAvatar,
+                      { backgroundColor: "#DCFCE7" },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.bookingAvatarText,
+                        { color: "#16A34A" },
+                      ]}
+                    >
+                      {(b.studentName?.[0] || "S").toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.bookingInfo}>
+                    <Text style={styles.bookingName}>
+                      {b.studentName || "Student"}
+                    </Text>
+                    <Text style={styles.bookingDate}>
+                      {formatDate(b.date)} at {b.time}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+                    <Text style={[styles.statusText, { color: sc.text }]}>
+                      Confirmed
+                    </Text>
+                  </View>
+                </View>
+                {b.dmThreadId && (
+                  <TouchableOpacity
+                    style={styles.messageBtn}
+                    onPress={() =>
+                      nav.navigate("DirectMessage", {
+                        chatId: b.dmThreadId!,
+                        otherName: b.studentName || "Student",
+                      })
+                    }
+                  >
+                    <Text style={styles.messageBtnText}>💬 Open Chat</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })
         )}
 
         {/* DM Threads */}
@@ -155,31 +307,55 @@ export function CounselorDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F0FDF4" },
+  container: { flex: 1, backgroundColor: "#F9FAFB" },
   scroll: { paddingBottom: 60 },
+
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 16,
     marginBottom: 20,
   },
-  greeting: { fontSize: 24, fontWeight: "800", color: "#111827" },
-  role: { fontSize: 13, fontWeight: "600", color: "#16A34A", marginTop: 2 },
-  logoutText: { color: "#EF4444", fontSize: 13, fontWeight: "600", marginTop: 4 },
-  statsRow: { flexDirection: "row", paddingHorizontal: 20, gap: 10, marginBottom: 24 },
+  greeting: { fontSize: 26, fontWeight: "800", color: "#111827" },
+  role: { fontSize: 13, color: "#16A34A", fontWeight: "600", marginTop: 2 },
+
+  statsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: 10,
+    marginBottom: 20,
+  },
   statCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderLeftWidth: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  statNum: { fontSize: 22, fontWeight: "800", color: "#16A34A" },
-  statLabel: { fontSize: 11, color: "#6B7280", marginTop: 4 },
+  statNum: { fontSize: 24, fontWeight: "800", color: "#111827" },
+  statLabel: { fontSize: 11, color: "#6B7280", marginTop: 4, fontWeight: "500" },
+
+  availabilityBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    marginHorizontal: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    gap: 12,
+  },
+  availabilityIcon: { fontSize: 28 },
+  availabilityTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  availabilitySubtext: { fontSize: 12, color: "#6B7280", marginTop: 1 },
+  chevron: { fontSize: 24, color: "#9CA3AF" },
+
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
@@ -193,27 +369,77 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 10,
   },
+
   bookingCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    marginHorizontal: 20,
-    marginBottom: 8,
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
   },
-  bookingTime: { fontSize: 14, fontWeight: "600", color: "#374151" },
-  bookingStatus: { fontSize: 12, fontWeight: "700", color: "#F59E0B", textTransform: "capitalize" },
+  bookingTop: { flexDirection: "row", alignItems: "center" },
+  bookingAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FEF3C7",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bookingAvatarText: { fontSize: 17, fontWeight: "700", color: "#D97706" },
+  bookingInfo: { flex: 1, marginLeft: 12 },
+  bookingName: { fontSize: 15, fontWeight: "600", color: "#111827" },
+  bookingDate: { fontSize: 13, color: "#6B7280", marginTop: 2 },
+  bookingNotes: { fontSize: 12, color: "#9CA3AF", marginTop: 2, fontStyle: "italic" },
+
+  actions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  confirmBtn: {
+    flex: 1,
+    backgroundColor: "#16A34A",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  confirmBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
+  rejectBtn: {
+    flex: 1,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  rejectBtnText: { color: "#DC2626", fontWeight: "700", fontSize: 14 },
+
+  statusBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusText: { fontSize: 11, fontWeight: "700" },
+
+  messageBtn: {
+    marginTop: 12,
+    backgroundColor: "#F0FDF4",
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+  },
+  messageBtnText: { fontSize: 14, fontWeight: "600", color: "#16A34A" },
+
   threadCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     padding: 16,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
   },
   threadName: { fontSize: 14, fontWeight: "700", color: "#111827", marginBottom: 4 },
   threadPreview: { fontSize: 13, color: "#6B7280" },

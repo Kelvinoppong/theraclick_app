@@ -84,8 +84,11 @@ export type Booking = {
   id: string;
   studentId: string;
   counselorId: string;
+  studentName?: string;
+  counselorName?: string;
   date: string;
   time: string;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   notes?: string;
+  dmThreadId?: string;
 };

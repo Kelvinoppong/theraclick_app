@@ -56,9 +56,18 @@ export function BookingScreen() {
     return () => unsub();
   }, [profile]);
 
-  const dateStr = selectedDate.toISOString().split("T")[0];
+  // Use local date (not UTC) to avoid timezone offset bugs
+  const y = selectedDate.getFullYear();
+  const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+  const d = String(selectedDate.getDate()).padStart(2, "0");
+  const dateStr = `${y}-${m}-${d}`;
   const dayBookings = bookings.filter(
     (b) => b.date === dateStr && b.status !== "cancelled"
+  );
+
+  // All upcoming (confirmed + pending) regardless of date
+  const upcoming = bookings.filter(
+    (b) => b.status === "confirmed" || b.status === "pending"
   );
 
   const handleCancel = (bookingId: string) => {
@@ -86,17 +95,17 @@ export function BookingScreen() {
   };
 
   const formatSelectedDate = () => {
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const sel = new Date(selectedDate);
-    sel.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const tmrw = new Date(now);
+    tmrw.setDate(now.getDate() + 1);
+    const tmrwStr = `${tmrw.getFullYear()}-${String(tmrw.getMonth() + 1).padStart(2, "0")}-${String(tmrw.getDate()).padStart(2, "0")}`;
 
-    if (sel.getTime() === today.getTime()) return "Today";
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    if (sel.getTime() === tomorrow.getTime()) return "Tomorrow";
-    return `${months[sel.getMonth()]} ${sel.getDate()}`;
+    if (dateStr === todayStr) return "Today";
+    if (dateStr === tmrwStr) return "Tomorrow";
+
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[selectedDate.getMonth()]} ${selectedDate.getDate()}`;
   };
 
   return (
@@ -150,9 +159,11 @@ export function BookingScreen() {
           /* Timeline view */
           <View style={styles.timeline}>
             {TIMELINE_HOURS.map((hour) => {
-              const hourBookings = dayBookings.filter((b) =>
-                b.time.toLowerCase().includes(hour.toLowerCase())
-              );
+              // Normalize: "10:00 AM" → "10 AM" to match timeline labels
+              const hourBookings = dayBookings.filter((b) => {
+                const normalized = b.time.replace(/:00/g, "").replace(/:30/g, "");
+                return normalized.toLowerCase() === hour.toLowerCase();
+              });
 
               return (
                 <View key={hour} style={styles.timeRow}>
@@ -165,25 +176,18 @@ export function BookingScreen() {
                         const badge = statusBadge(b.status);
                         return (
                           <View key={b.id} style={styles.appointmentCard}>
-                            {/* Counselor avatar */}
                             <View style={styles.cardRow}>
                               <View style={styles.avatarCircle}>
                                 <Text style={styles.avatarText}>
-                                  {(b.counselorId || "C").charAt(0).toUpperCase()}
+                                  {(b.counselorName || "C").charAt(0).toUpperCase()}
                                 </Text>
                               </View>
                               <View style={styles.cardInfo}>
                                 <Text style={styles.counselorName}>
-                                  Counselor
+                                  {b.counselorName || "Counselor"}
                                 </Text>
-                                <View style={styles.specRow}>
-                                  <Text style={styles.specText}>🩺 Session</Text>
-                                  <View style={styles.ratingBadge}>
-                                    <Text style={styles.ratingText}>⭐ 4.5</Text>
-                                  </View>
-                                </View>
+                                <Text style={styles.specText}>🩺 Mental Health Session</Text>
                               </View>
-                              {/* Status badge */}
                               <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
                                 <Text style={[styles.statusText, { color: badge.color }]}>
                                   {badge.label}
@@ -192,14 +196,22 @@ export function BookingScreen() {
                             </View>
 
                             <Text style={styles.sessionTopic}>
-                              {b.time} — Mental Health Session
+                              {b.time} — {b.date}
                             </Text>
 
-                            {/* Actions */}
                             <View style={styles.cardActions}>
-                              <TouchableOpacity>
-                                <Text style={styles.rescheduleText}>Reschedule</Text>
-                              </TouchableOpacity>
+                              {b.status === "confirmed" && b.dmThreadId && (
+                                <TouchableOpacity
+                                  onPress={() =>
+                                    nav.navigate("DirectMessage", {
+                                      chatId: b.dmThreadId!,
+                                      otherName: b.counselorName || "Counselor",
+                                    })
+                                  }
+                                >
+                                  <Text style={styles.messageText}>💬 Message</Text>
+                                </TouchableOpacity>
+                              )}
                               {b.status !== "completed" && (
                                 <TouchableOpacity onPress={() => handleCancel(b.id)}>
                                   <Text style={styles.cancelText}>Cancel</Text>
@@ -213,6 +225,49 @@ export function BookingScreen() {
                   ) : (
                     <View style={styles.emptySlot} />
                   )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+        {/* Upcoming sessions (always visible) */}
+        {upcoming.length > 0 && (
+          <View style={styles.upcomingSection}>
+            <Text style={styles.upcomingTitle}>
+              All Upcoming ({upcoming.length})
+            </Text>
+            {upcoming.map((b) => {
+              const badge = statusBadge(b.status);
+              return (
+                <View key={b.id} style={styles.upcomingCard}>
+                  <View style={styles.upcomingLeft}>
+                    <View
+                      style={[
+                        styles.upcomingDot,
+                        { backgroundColor: badge.color },
+                      ]}
+                    />
+                    <View>
+                      <Text style={styles.upcomingName}>
+                        {b.counselorName || "Counselor"}
+                      </Text>
+                      <Text style={styles.upcomingDate}>
+                        {b.date} at {b.time}
+                      </Text>
+                    </View>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: badge.bg },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.statusText, { color: badge.color }]}
+                    >
+                      {badge.label}
+                    </Text>
+                  </View>
                 </View>
               );
             })}
@@ -390,7 +445,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
   },
-  rescheduleText: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
+  messageText: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
   cancelText: { fontSize: 12, fontWeight: "700", color: "#EF4444" },
 
   /* FAB */
@@ -411,4 +466,48 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   fabIcon: { fontSize: 28, color: "#FFFFFF", fontWeight: "300", marginTop: -2 },
+
+  /* Upcoming section */
+  upcomingSection: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  upcomingTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  upcomingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+  },
+  upcomingLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  upcomingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  upcomingName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  upcomingDate: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
 });

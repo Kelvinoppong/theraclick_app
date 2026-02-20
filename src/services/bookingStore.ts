@@ -1,20 +1,25 @@
 /**
- * Booking persistence — Firestore `bookings` + `users` collections.
+ * Booking flow — zero-cost Firestore implementation.
  *
- * Schema (matches web firestore.rules):
- *   bookings/{bookingId}
- *     studentId, counselorId, date, time, status, notes, createdAt
+ * Slot format: "YYYY-MM-DD|HH:mm A" (e.g. "2026-02-25|10:00 AM")
+ * Stored in users/{counselorId}.availableSlots[]
  *
- * Counselor availability is read from their profile or a dedicated
- * `availability` subcollection (future). For now we query users
- * with role=counselor and status=active.
+ * Flow:
+ *   1. Counselor adds slots via CounselorAvailabilityScreen
+ *   2. Student browses counselors → picks a slot → creates booking (pending)
+ *   3. Counselor sees pending booking → confirms or rejects
+ *   4. On confirm: status=confirmed, slot removed, DM thread auto-created
+ *   5. Both sides get notifications
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   addDoc,
+  arrayRemove,
+  arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -25,20 +30,81 @@ import {
 } from "firebase/firestore";
 
 import { db, firebaseIsReady } from "./firebase";
+import { findOrCreateDmThread, sendDirectMessage } from "./messagingStore";
+import { sendImmediateNotification } from "./notifications";
+import { addNotification } from "./notificationStore";
 import type { Booking } from "../shared/types";
 
 const LS_KEY = "theraclick.bookings.v1";
 
-// ── Fetch active counselors ──────────────────────────
+/* ═══════════════════════════════════════════════════════
+   COUNSELOR AVAILABILITY
+   ═══════════════════════════════════════════════════════ */
+
+export async function addAvailabilitySlot(
+  counselorId: string,
+  date: string,
+  time: string
+): Promise<void> {
+  const slot = `${date}|${time}`;
+  if (firebaseIsReady && db) {
+    await updateDoc(doc(db, "users", counselorId), {
+      availableSlots: arrayUnion(slot),
+    });
+    return;
+  }
+}
+
+export async function removeAvailabilitySlot(
+  counselorId: string,
+  date: string,
+  time: string
+): Promise<void> {
+  const slot = `${date}|${time}`;
+  if (firebaseIsReady && db) {
+    await updateDoc(doc(db, "users", counselorId), {
+      availableSlots: arrayRemove(slot),
+    });
+    return;
+  }
+}
+
+export async function getAvailabilitySlots(
+  counselorId: string
+): Promise<{ date: string; time: string }[]> {
+  if (firebaseIsReady && db) {
+    const snap = await getDoc(doc(db, "users", counselorId));
+    const data = snap.data();
+    const raw: string[] = data?.availableSlots ?? [];
+    const seen = new Set<string>();
+    return raw
+      .filter((s) => {
+        if (seen.has(s)) return false;
+        seen.add(s);
+        return true;
+      })
+      .map((s) => {
+        const [date, time] = s.split("|");
+        return { date, time };
+      })
+      .filter((s) => s.date && s.time)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  }
+  return [];
+}
+
+/* ═══════════════════════════════════════════════════════
+   COUNSELOR LIST (for students browsing)
+   ═══════════════════════════════════════════════════════ */
+
+export type CounselorSlot = { date: string; time: string };
 
 export type CounselorInfo = {
   uid: string;
   fullName: string;
   specialization: string;
-  slots: string[];
+  slots: CounselorSlot[];
 };
-
-const DEFAULT_SLOTS = ["Mon 10:00 AM", "Wed 2:00 PM", "Fri 11:00 AM"];
 
 export async function loadCounselors(): Promise<CounselorInfo[]> {
   if (firebaseIsReady && db) {
@@ -50,28 +116,47 @@ export async function loadCounselors(): Promise<CounselorInfo[]> {
     const snap = await getDocs(q);
     return snap.docs.map((d) => {
       const data = d.data();
+      const raw: string[] = data.availableSlots ?? [];
+      const slots = raw
+        .map((s) => {
+          const [date, time] = s.split("|");
+          return { date, time };
+        })
+        .filter((s) => s.date && s.time)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
       return {
         uid: d.id,
         fullName: data.fullName ?? "Counselor",
         specialization: data.application?.specialization ?? "General",
-        slots: data.availableSlots ?? DEFAULT_SLOTS,
+        slots,
       };
     });
   }
 
   // Demo fallback
   return [
-    { uid: "demo_c1", fullName: "Dr. Ama Mensah", specialization: "Anxiety & Stress Management", slots: ["Mon 10:00 AM", "Wed 2:00 PM", "Fri 11:00 AM"] },
-    { uid: "demo_c2", fullName: "Mr. Kwame Asante", specialization: "Academic Counseling", slots: ["Tue 9:00 AM", "Thu 3:00 PM"] },
-    { uid: "demo_c3", fullName: "Ms. Efua Darko", specialization: "Relationships & Self-esteem", slots: ["Mon 1:00 PM", "Wed 4:00 PM", "Fri 9:00 AM"] },
+    {
+      uid: "demo_c1",
+      fullName: "Dr. Ama Mensah",
+      specialization: "Anxiety & Stress",
+      slots: [
+        { date: "2026-02-23", time: "10:00 AM" },
+        { date: "2026-02-25", time: "2:00 PM" },
+      ],
+    },
   ];
 }
 
-// ── Create booking ───────────────────────────────────
+/* ═══════════════════════════════════════════════════════
+   BOOKING CRUD
+   ═══════════════════════════════════════════════════════ */
 
 export async function createBooking(booking: {
   studentId: string;
   counselorId: string;
+  studentName?: string;
+  counselorName?: string;
   date: string;
   time: string;
   notes?: string;
@@ -85,60 +170,70 @@ export async function createBooking(booking: {
     return ref.id;
   }
 
-  // Demo fallback
   const existing = await loadLocalBookings();
   const newBooking: Booking = {
     id: `local_${Date.now()}`,
     ...booking,
     status: "pending",
-    notes: booking.notes,
   };
   await AsyncStorage.setItem(LS_KEY, JSON.stringify([newBooking, ...existing]));
   return newBooking.id;
 }
 
-// ── Load student's bookings ──────────────────────────
+/**
+ * Counselor confirms a booking:
+ *   1. Update status → confirmed
+ *   2. Remove the slot from counselor's availability
+ *   3. Auto-create a DM thread + send a system message
+ *   4. Send notifications to the student
+ */
+export async function confirmBooking(
+  bookingId: string,
+  booking: Booking
+): Promise<void> {
+  if (!firebaseIsReady || !db) return;
 
-export async function loadStudentBookings(
-  studentId: string
-): Promise<Booking[]> {
-  if (firebaseIsReady && db) {
-    // Single-field where avoids needing a composite index
-    const q = query(
-      collection(db, "bookings"),
-      where("studentId", "==", studentId)
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(docToBooking).sort(sortDesc);
-  }
+  // 1. Update booking status
+  const bookingRef = doc(db, "bookings", bookingId);
+  await updateDoc(bookingRef, { status: "confirmed" });
 
-  const all = await loadLocalBookings();
-  return all.filter((b) => b.studentId === studentId);
-}
+  // 2. Remove slot from counselor's availability
+  const slot = `${booking.date}|${booking.time}`;
+  await updateDoc(doc(db, "users", booking.counselorId), {
+    availableSlots: arrayRemove(slot),
+  });
 
-// ── Subscribe to booking updates ─────────────────────
-
-export function subscribeToStudentBookings(
-  studentId: string,
-  callback: (bookings: Booking[]) => void
-): Unsubscribe {
-  if (!firebaseIsReady || !db) {
-    loadStudentBookings(studentId).then(callback);
-    return () => {};
-  }
-
-  // Single-field where — sort client-side to avoid composite index requirement
-  const q = query(
-    collection(db, "bookings"),
-    where("studentId", "==", studentId)
+  // 3. Auto-create DM thread + system message
+  const dmThreadId = await findOrCreateDmThread(
+    booking.counselorId,
+    booking.studentId
+  );
+  await updateDoc(bookingRef, { dmThreadId });
+  await sendDirectMessage(
+    dmThreadId,
+    booking.counselorId,
+    `📅 Session confirmed for ${booking.date} at ${booking.time}. Looking forward to our conversation!`
   );
 
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(docToBooking).sort(sortDesc));
+  // 4. Notifications
+  const title = "Session Confirmed ✓";
+  const body = `${booking.counselorName || "Your counselor"} confirmed your session on ${booking.date} at ${booking.time}.`;
+  sendImmediateNotification(title, body);
+  addNotification({
+    type: "booking_confirmed",
+    title,
+    body,
+    screen: "Booking",
   });
 }
 
-// ── Cancel booking ───────────────────────────────────
+/**
+ * Counselor rejects a booking — status → cancelled.
+ */
+export async function rejectBooking(bookingId: string): Promise<void> {
+  if (!firebaseIsReady || !db) return;
+  await updateDoc(doc(db, "bookings", bookingId), { status: "cancelled" });
+}
 
 export async function cancelBooking(bookingId: string): Promise<void> {
   if (firebaseIsReady && db) {
@@ -155,7 +250,67 @@ export async function cancelBooking(bookingId: string): Promise<void> {
   await AsyncStorage.setItem(LS_KEY, JSON.stringify(updated));
 }
 
-// ── Helpers ──────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════
+   LOADING & SUBSCRIPTIONS
+   ═══════════════════════════════════════════════════════ */
+
+export async function loadStudentBookings(
+  studentId: string
+): Promise<Booking[]> {
+  if (firebaseIsReady && db) {
+    const q = query(
+      collection(db, "bookings"),
+      where("studentId", "==", studentId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(docToBooking).sort(sortDesc);
+  }
+
+  const all = await loadLocalBookings();
+  return all.filter((b) => b.studentId === studentId);
+}
+
+export function subscribeToStudentBookings(
+  studentId: string,
+  callback: (bookings: Booking[]) => void
+): Unsubscribe {
+  if (!firebaseIsReady || !db) {
+    loadStudentBookings(studentId).then(callback);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, "bookings"),
+    where("studentId", "==", studentId)
+  );
+
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map(docToBooking).sort(sortDesc));
+  });
+}
+
+export function subscribeToCounselorBookings(
+  counselorId: string,
+  callback: (bookings: Booking[]) => void
+): Unsubscribe {
+  if (!firebaseIsReady || !db) {
+    callback([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, "bookings"),
+    where("counselorId", "==", counselorId)
+  );
+
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map(docToBooking).sort(sortDesc));
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════ */
 
 function sortDesc(a: Booking, b: Booking): number {
   return (b.date || "").localeCompare(a.date || "");
@@ -167,10 +322,13 @@ function docToBooking(d: any): Booking {
     id: d.id,
     studentId: data.studentId ?? "",
     counselorId: data.counselorId ?? "",
+    studentName: data.studentName,
+    counselorName: data.counselorName,
     date: data.date ?? "",
     time: data.time ?? "",
     status: data.status ?? "pending",
     notes: data.notes,
+    dmThreadId: data.dmThreadId,
   };
 }
 
