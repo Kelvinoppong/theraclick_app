@@ -250,6 +250,44 @@ export async function cancelBooking(bookingId: string): Promise<void> {
   await AsyncStorage.setItem(LS_KEY, JSON.stringify(updated));
 }
 
+export async function completeBooking(bookingId: string): Promise<void> {
+  if (firebaseIsReady && db) {
+    await updateDoc(doc(db, "bookings", bookingId), {
+      status: "completed",
+    });
+    return;
+  }
+
+  const bookings = await loadLocalBookings();
+  const updated = bookings.map((b) =>
+    b.id === bookingId ? { ...b, status: "completed" as const } : b
+  );
+  await AsyncStorage.setItem(LS_KEY, JSON.stringify(updated));
+}
+
+/**
+ * Parse "YYYY-MM-DD" + "HH:mm AM/PM" into a Date object.
+ * Returns null if parsing fails.
+ */
+export function parseBookingDateTime(date: string, time: string): Date | null {
+  try {
+    const [year, month, day] = date.split("-").map(Number);
+    const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) return null;
+
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const period = match[3].toUpperCase();
+
+    if (period === "PM" && hours !== 12) hours += 12;
+    if (period === "AM" && hours === 12) hours = 0;
+
+    return new Date(year, month - 1, day, hours, minutes);
+  } catch {
+    return null;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════
    LOADING & SUBSCRIPTIONS
    ═══════════════════════════════════════════════════════ */

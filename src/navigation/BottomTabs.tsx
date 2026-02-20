@@ -11,7 +11,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Text, View, StyleSheet, AppState } from "react-native";
+import { Text, View, StyleSheet, AppState, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../context/AuthContext";
 import { getUnreadCount } from "../services/notificationStore";
@@ -102,6 +103,7 @@ const iconStyles = StyleSheet.create({
 
 export function MainTabs() {
   const { profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const role = profile?.role;
   const isAdmin = role === "admin";
   const [unread, setUnread] = useState(0);
@@ -121,6 +123,14 @@ export function MainTabs() {
     return () => sub.remove();
   }, [refreshBadge]);
 
+  const dynamicTabBarStyle = {
+    backgroundColor: "#FFFFFF",
+    borderTopColor: "#E5E7EB",
+    paddingTop: 6,
+    paddingBottom: Math.max(insets.bottom, 8),
+    height: 56 + Math.max(insets.bottom, 8),
+  };
+
   /* ─── Admin gets a completely different tab layout ─── */
   if (isAdmin) {
     return (
@@ -135,7 +145,7 @@ export function MainTabs() {
           ),
           tabBarActiveTintColor: "#16A34A",
           tabBarInactiveTintColor: "#9CA3AF",
-          tabBarStyle: tabBarStyle,
+          tabBarStyle: dynamicTabBarStyle,
           tabBarLabelStyle: tabBarLabelStyle,
         })}
       >
@@ -172,7 +182,7 @@ export function MainTabs() {
         ),
         tabBarActiveTintColor: "#16A34A",
         tabBarInactiveTintColor: "#9CA3AF",
-        tabBarStyle: tabBarStyle,
+        tabBarStyle: dynamicTabBarStyle,
         tabBarLabelStyle: tabBarLabelStyle,
       })}
     >
@@ -187,14 +197,6 @@ export function MainTabs() {
     </Tab.Navigator>
   );
 }
-
-const tabBarStyle = {
-  backgroundColor: "#FFFFFF",
-  borderTopColor: "#E5E7EB",
-  paddingBottom: 6,
-  paddingTop: 6,
-  height: 60,
-};
 
 const tabBarLabelStyle = {
   fontSize: 10,

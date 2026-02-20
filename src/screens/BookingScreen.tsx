@@ -25,6 +25,8 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../context/AuthContext";
 import {
   cancelBooking,
+  completeBooking,
+  parseBookingDateTime,
   subscribeToStudentBookings,
 } from "../services/bookingStore";
 import type { Booking } from "../shared/types";
@@ -43,7 +45,11 @@ export function BookingScreen() {
   const { profile } = useAuth();
   const nav = useNavigation<Nav>();
 
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -56,6 +62,22 @@ export function BookingScreen() {
     return () => unsub();
   }, [profile]);
 
+  // Auto-mark past bookings as completed
+  useEffect(() => {
+    if (bookings.length === 0) return;
+    const now = new Date();
+    bookings.forEach((b) => {
+      if (b.status !== "confirmed" && b.status !== "pending") return;
+      const dt = parseBookingDateTime(b.date, b.time);
+      if (!dt) return;
+      // Give 1 hour buffer after the slot time before marking complete
+      const endTime = new Date(dt.getTime() + 60 * 60 * 1000);
+      if (now > endTime) {
+        completeBooking(b.id);
+      }
+    });
+  }, [bookings]);
+
   // Use local date (not UTC) to avoid timezone offset bugs
   const y = selectedDate.getFullYear();
   const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
@@ -65,10 +87,14 @@ export function BookingScreen() {
     (b) => b.date === dateStr && b.status !== "cancelled"
   );
 
-  // All upcoming (confirmed + pending) regardless of date
-  const upcoming = bookings.filter(
-    (b) => b.status === "confirmed" || b.status === "pending"
-  );
+  // All upcoming (confirmed + pending) that haven't passed yet
+  const now = new Date();
+  const upcoming = bookings.filter((b) => {
+    if (b.status !== "confirmed" && b.status !== "pending") return false;
+    const dt = parseBookingDateTime(b.date, b.time);
+    if (!dt) return true; // keep if we can't parse (safe fallback)
+    return dt >= now;
+  });
 
   const handleCancel = (bookingId: string) => {
     Alert.alert("Cancel Appointment", "Are you sure you want to cancel?", [
@@ -96,16 +122,26 @@ export function BookingScreen() {
 
   const formatSelectedDate = () => {
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const tmrw = new Date(now);
-    tmrw.setDate(now.getDate() + 1);
-    const tmrwStr = `${tmrw.getFullYear()}-${String(tmrw.getMonth() + 1).padStart(2, "0")}-${String(tmrw.getDate()).padStart(2, "0")}`;
+    now.setHours(0, 0, 0, 0);
+    const todayY = now.getFullYear();
+    const todayM = now.getMonth();
+    const todayD = now.getDate();
 
-    if (dateStr === todayStr) return "Today";
-    if (dateStr === tmrwStr) return "Tomorrow";
+    const selY = selectedDate.getFullYear();
+    const selM = selectedDate.getMonth();
+    const selD = selectedDate.getDate();
+
+    // Same year, month, and day = today
+    if (selY === todayY && selM === todayM && selD === todayD) return "Today";
+
+    // Check tomorrow by comparing numeric values directly
+    const tmrw = new Date(todayY, todayM, todayD + 1);
+    if (selY === tmrw.getFullYear() && selM === tmrw.getMonth() && selD === tmrw.getDate()) {
+      return "Tomorrow";
+    }
 
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return `${months[selectedDate.getMonth()]} ${selectedDate.getDate()}`;
+    return `${months[selM]} ${selD}`;
   };
 
   return (
@@ -113,12 +149,6 @@ export function BookingScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Counselor Appointments</Text>
-        <TouchableOpacity
-          style={styles.notifBtn}
-          onPress={() => {}}
-        >
-          <Text style={styles.notifIcon}>🔔</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Week day picker */}
@@ -274,14 +304,6 @@ export function BookingScreen() {
           </View>
         )}
       </ScrollView>
-
-      {/* Floating action button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => nav.navigate("CounselorList" as any)}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -297,17 +319,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   headerTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
-  notifBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  notifIcon: { fontSize: 18 },
   scroll: { paddingBottom: 100 },
 
   /* Empty state */
@@ -447,25 +458,6 @@ const styles = StyleSheet.create({
   },
   messageText: { fontSize: 12, fontWeight: "700", color: "#16A34A" },
   cancelText: { fontSize: 12, fontWeight: "700", color: "#EF4444" },
-
-  /* FAB */
-  fab: {
-    position: "absolute",
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#16A34A",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#16A34A",
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  fabIcon: { fontSize: 28, color: "#FFFFFF", fontWeight: "300", marginTop: -2 },
 
   /* Upcoming section */
   upcomingSection: {

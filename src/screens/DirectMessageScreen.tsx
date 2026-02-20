@@ -15,7 +15,7 @@ import {
   Text,
   TouchableOpacity,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -45,6 +45,7 @@ export function DirectMessageScreen({ route, navigation }: Props) {
   const { chatId, otherName, otherUid: passedOtherUid } =
     route.params as DirectMessageParams;
   const { profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
 
   const [messages, setMessages] = useState<DirectMessage[]>([]);
@@ -159,22 +160,30 @@ export function DirectMessageScreen({ route, navigation }: Props) {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(m) => m.id}
-          renderItem={({ item }) => (
-            <MessageBubble
-              text={item.text}
-              sender={item.senderId === profile?.uid ? "user" : "ai"}
-            />
-          )}
+          renderItem={({ item }) => {
+            const isMe = item.senderId === profile?.uid;
+            console.log("[DM] senderId:", item.senderId, "| myUid:", profile?.uid, "| isMe:", isMe);
+            return (
+              <MessageBubble
+                text={item.text}
+                sender={isMe ? "user" : "ai"}
+                showAvatar={false}
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
           onContentSizeChange={scrollToEnd}
         />
-        <ChatInput onSend={handleSend} disabled={sending} />
+        <View style={{ paddingBottom: insets.bottom }}>
+          <ChatInput onSend={handleSend} disabled={sending} />
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

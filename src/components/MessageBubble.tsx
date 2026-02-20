@@ -13,9 +13,10 @@ const BOT_ICON = require("./app_icon.jpeg");
 type Props = {
   text: string;
   sender: "user" | "ai";
+  showAvatar?: boolean;
 };
 
-export function MessageBubble({ text, sender }: Props) {
+export function MessageBubble({ text, sender, showAvatar = true }: Props) {
   const isUser = sender === "user";
 
   if (isUser) {
@@ -30,7 +31,7 @@ export function MessageBubble({ text, sender }: Props) {
 
   return (
     <View style={styles.aiRow}>
-      <Image source={BOT_ICON} style={styles.botAvatar} />
+      {showAvatar && <Image source={BOT_ICON} style={styles.botAvatar} />}
       <View style={styles.aiBubble}>
         <Text style={styles.aiText}>{text}</Text>
       </View>
