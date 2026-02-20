@@ -211,13 +211,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Register device for push notifications
             registerForPushNotifications(u.uid).catch(() => {});
 
-            // Welcome notification in the in-app feed
-            addNotification({
-              type: "system",
-              title: "Welcome back!",
-              body: `Signed in as ${p?.fullName || p?.email || "user"}. Your safe space is ready.`,
-            }).catch(() => {});
-
             // Real-time listener for profile updates (e.g. admin approvals)
             const profileRef = doc(db!, "users", u.uid);
             unsubProfile = onSnapshot(
@@ -260,6 +253,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isFirebaseBacked || !auth)
       throw new Error("Firebase is not configured");
     await signInWithEmailAndPassword(auth, email.trim(), password);
+    addNotification({
+      type: "system",
+      title: "Welcome back!",
+      body: `Signed in as ${email.trim()}. Your safe space is ready.`,
+    }).catch(() => {});
   };
 
   const signupStudent = async (input: {
@@ -299,6 +297,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       { merge: true }
     );
+    addNotification({
+      type: "system",
+      title: "Welcome to Theraklick!",
+      body: `Account created for ${input.fullName.trim()}. Your safe space is ready.`,
+    }).catch(() => {});
   };
 
   const applyForRole = async (input: {

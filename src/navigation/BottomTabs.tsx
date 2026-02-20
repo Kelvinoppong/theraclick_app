@@ -4,12 +4,13 @@
  * Role-aware: Students get the full layout with Booking.
  * All roles get: Dashboard, Chat, Notifications, Forums, Profile.
  * Notifications tab shows an unread badge count.
+ *
+ * Badge refreshes on every tab switch via the onStateChange callback.
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Text, View, StyleSheet } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { Text, View, StyleSheet, AppState } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
 import { getUnreadCount } from "../services/notificationStore";
@@ -96,12 +97,22 @@ export function MainTabs() {
   const role = profile?.role;
   const [unread, setUnread] = useState(0);
 
-  // Refresh unread count every time any tab gains focus
-  useFocusEffect(
-    useCallback(() => {
-      getUnreadCount().then(setUnread);
-    }, [])
-  );
+  const refreshBadge = useCallback(() => {
+    getUnreadCount().then(setUnread);
+  }, []);
+
+  // Refresh on mount
+  useEffect(() => {
+    refreshBadge();
+  }, [refreshBadge]);
+
+  // Refresh when app comes back to foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshBadge();
+    });
+    return () => sub.remove();
+  }, [refreshBadge]);
 
   const DashboardComponent =
     role === "peer-mentor"
@@ -112,6 +123,12 @@ export function MainTabs() {
 
   return (
     <Tab.Navigator
+      screenListeners={{
+        // Refresh badge count on EVERY tab switch
+        state: () => {
+          refreshBadge();
+        },
+      }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused }) => (
