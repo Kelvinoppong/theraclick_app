@@ -25,7 +25,7 @@ import {
   sendDirectMessage,
   DirectMessage,
 } from "../services/messagingStore";
-import { sendImmediateNotification } from "../services/notifications";
+import { sendImmediateNotification, sendCallNotification } from "../services/notifications";
 import { addNotification } from "../services/notificationStore";
 import { createCall, type CallType } from "../services/callStore";
 import { db, firebaseIsReady } from "../services/firebase";
@@ -113,10 +113,15 @@ export function DirectMessageScreen({ route, navigation }: Props) {
         otherName,
         type
       );
+
+      // Send push notification so receiver gets alerted even if app is closed
+      sendCallNotification(resolvedOtherUid, callerName, profile.uid, callId, type);
+
       navigation.navigate("Call", {
         callId,
         callType: type,
         otherName,
+        otherUid: resolvedOtherUid,
         isCaller: true,
       });
     } catch (e) {
@@ -169,12 +174,12 @@ export function DirectMessageScreen({ route, navigation }: Props) {
           keyExtractor={(m) => m.id}
           renderItem={({ item }) => {
             const isMe = item.senderId === profile?.uid;
-            console.log("[DM] senderId:", item.senderId, "| myUid:", profile?.uid, "| isMe:", isMe);
             return (
               <MessageBubble
                 text={item.text}
                 sender={isMe ? "user" : "ai"}
                 showAvatar={false}
+                timestamp={item.createdAt}
               />
             );
           }}

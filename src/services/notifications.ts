@@ -51,13 +51,22 @@ export async function registerForPushNotifications(
       return null;
     }
 
-    // Android needs a notification channel
+    // Android needs notification channels
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
         name: "Default",
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: "#16A34A",
+      });
+
+      await Notifications.setNotificationChannelAsync("calls", {
+        name: "Incoming Calls",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 200, 500, 200, 500],
+        lightColor: "#16A34A",
+        sound: "default",
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       });
     }
 
@@ -153,6 +162,72 @@ export function addNotificationReceivedListener(
  */
 export async function getLastNotificationResponse() {
   return Notifications.getLastNotificationResponseAsync();
+}
+
+/**
+ * Fetch all Expo push tokens for a user from Firestore.
+ */
+async function getUserPushTokens(uid: string): Promise<string[]> {
+  if (!firebaseIsReady || !db) return [];
+  try {
+    const { getDocs, collection: col } = await import("firebase/firestore");
+    const snap = await getDocs(col(db, "users", uid, "devices"));
+    return snap.docs
+      .map((d) => d.data().token as string)
+      .filter((t) => !!t);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Send a push notification to a specific user via the Expo Push API.
+ * Used for incoming calls when the receiver's app is in the background.
+ */
+export async function sendCallNotification(
+  receiverUid: string,
+  callerName: string,
+  callerUid: string,
+  callId: string,
+  callType: "audio" | "video"
+): Promise<void> {
+  console.log("[CallNotif] Fetching tokens for:", receiverUid);
+  const tokens = await getUserPushTokens(receiverUid);
+  console.log("[CallNotif] Found tokens:", tokens.length, tokens);
+  if (tokens.length === 0) {
+    console.log("[CallNotif] No push tokens found for user:", receiverUid);
+    return;
+  }
+
+  const messages = tokens.map((token) => ({
+    to: token,
+    sound: "default",
+    title: `${callerName}`,
+    body: `Incoming ${callType} call`,
+    priority: "high" as const,
+    channelId: "calls",
+    data: {
+      screen: "Call",
+      callId,
+      callType,
+      otherName: callerName,
+      callerUid,
+    },
+  }));
+
+  try {
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(messages),
+    });
+    const result = await res.json();
+    console.log("[CallNotif] Push API response:", JSON.stringify(result));
+  } catch (e) {
+    console.warn("[CallNotif] Failed to send call notification:", e);
+  }
 }
 
 function simpleHash(str: string): string {

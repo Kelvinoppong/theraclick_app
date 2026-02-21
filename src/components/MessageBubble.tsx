@@ -14,16 +14,43 @@ type Props = {
   text: string;
   sender: "user" | "ai";
   showAvatar?: boolean;
+  timestamp?: number;
 };
 
-export function MessageBubble({ text, sender, showAvatar = true }: Props) {
+const CALL_PREFIX = /^(📹|📞)\s/;
+
+function formatTime(ts?: number): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hr = h % 12 || 12;
+  return `${hr}:${m} ${ampm}`;
+}
+
+export function MessageBubble({ text, sender, showAvatar = true, timestamp }: Props) {
   const isUser = sender === "user";
+  const isCallLog = CALL_PREFIX.test(text);
+  const time = formatTime(timestamp);
+
+  if (isCallLog) {
+    return (
+      <View style={isUser ? styles.callRowRight : styles.callRowLeft}>
+        <View style={styles.callBubble}>
+          <Text style={styles.callText}>{text}</Text>
+          {!!time && <Text style={styles.callTime}>{time}</Text>}
+        </View>
+      </View>
+    );
+  }
 
   if (isUser) {
     return (
       <View style={styles.userRow}>
         <View style={styles.userBubble}>
           <Text style={styles.userText}>{text}</Text>
+          {!!time && <Text style={styles.userTime}>{time}</Text>}
         </View>
       </View>
     );
@@ -34,12 +61,45 @@ export function MessageBubble({ text, sender, showAvatar = true }: Props) {
       {showAvatar && <Image source={BOT_ICON} style={styles.botAvatar} />}
       <View style={styles.aiBubble}>
         <Text style={styles.aiText}>{text}</Text>
+        {!!time && <Text style={styles.aiTime}>{time}</Text>}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  /* Call log messages — aligned like chat but styled distinctly */
+  callRowRight: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginVertical: 6,
+    paddingLeft: 80,
+  },
+  callRowLeft: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    marginVertical: 6,
+    paddingRight: 80,
+  },
+  callBubble: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  callText: {
+    color: "#374151",
+    fontSize: 13,
+  },
+  callTime: {
+    color: "#9CA3AF",
+    fontSize: 11,
+    marginTop: 4,
+    alignSelf: "flex-end",
+  },
+
   /* User message */
   userRow: {
     flexDirection: "row",
@@ -58,6 +118,12 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 15,
     lineHeight: 22,
+  },
+  userTime: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    marginTop: 4,
+    alignSelf: "flex-end",
   },
 
   /* AI message */
@@ -91,5 +157,11 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontSize: 15,
     lineHeight: 22,
+  },
+  aiTime: {
+    color: "#9CA3AF",
+    fontSize: 11,
+    marginTop: 4,
+    alignSelf: "flex-end",
   },
 });

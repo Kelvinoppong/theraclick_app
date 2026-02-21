@@ -8,6 +8,29 @@ import { SplashScreen } from "./src/components/SplashScreen";
 import { IncomingCallOverlay } from "./src/components/IncomingCallOverlay";
 import { navigationRef } from "./src/navigation/navigationRef";
 
+function handleNotificationData(data: Record<string, any> | undefined) {
+  if (!data || !navigationRef.current) return;
+
+  if (data.screen === "DirectMessage" && data.chatId) {
+    navigationRef.current.navigate("DirectMessage" as never, {
+      chatId: data.chatId,
+      otherName: data.otherName || "Chat",
+    } as never);
+  } else if (data.screen === "Booking") {
+    navigationRef.current.navigate("MainTabs" as never);
+  } else if (data.screen === "Chat") {
+    navigationRef.current.navigate("MainTabs" as never);
+  } else if (data.screen === "Call" && data.callId) {
+    navigationRef.current.navigate("Call" as never, {
+      callId: data.callId,
+      callType: data.callType || "audio",
+      otherName: data.otherName || "Call",
+      otherUid: data.callerUid || "",
+      isCaller: false,
+    } as never);
+  }
+}
+
 export default function App() {
   const [splashDone, setSplashDone] = useState(false);
   const notifResponseListener = useRef<Notifications.EventSubscription>();
@@ -17,27 +40,15 @@ export default function App() {
     // When user taps a notification → navigate to the right screen
     notifResponseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data;
-        if (!navigationRef.current) return;
-
-        if (data?.screen === "DirectMessage" && data?.chatId) {
-          navigationRef.current.navigate("DirectMessage" as never, {
-            chatId: data.chatId,
-            otherName: data.otherName || "Chat",
-          } as never);
-        } else if (data?.screen === "Booking") {
-          navigationRef.current.navigate("MainTabs" as never);
-        } else if (data?.screen === "Chat") {
-          navigationRef.current.navigate("MainTabs" as never);
-        } else if (data?.screen === "Call" && data?.callId) {
-          navigationRef.current.navigate("Call" as never, {
-            callId: data.callId,
-            callType: data.callType || "audio",
-            otherName: data.otherName || "Call",
-            isCaller: false,
-          } as never);
-        }
+        handleNotificationData(response.notification.request.content.data);
       });
+
+    // Handle cold start — app was killed, opened by tapping a notification
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        handleNotificationData(response.notification.request.content.data);
+      }
+    });
 
     // Foreground notification — just log it (the handler already shows it)
     notifReceivedListener.current =

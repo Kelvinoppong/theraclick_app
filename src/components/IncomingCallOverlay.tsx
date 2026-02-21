@@ -20,11 +20,13 @@ import {
 
 import {
   subscribeToIncomingCalls,
+  subscribeToCall,
   updateCallStatus,
   type CallDoc,
 } from "../services/callStore";
 import { useAuth } from "../context/AuthContext";
 import { navigationRef } from "../navigation/navigationRef";
+import { findOrCreateDmThread, sendDirectMessage } from "../services/messagingStore";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -45,6 +47,19 @@ export function IncomingCallOverlay() {
 
     return () => unsub();
   }, [profile?.uid]);
+
+  // Watch the call document — dismiss overlay if caller cancels
+  useEffect(() => {
+    if (!incomingCall) return;
+
+    const unsub = subscribeToCall(incomingCall.id, (call) => {
+      if (!call || call.status === "ended" || call.status === "missed") {
+        setIncomingCall(null);
+      }
+    });
+
+    return () => unsub();
+  }, [incomingCall?.id]);
 
   // Slide in + vibrate when incoming call appears
   useEffect(() => {
@@ -88,20 +103,32 @@ export function IncomingCallOverlay() {
     const call = incomingCall;
     setIncomingCall(null);
 
-    await updateCallStatus(call.id, "active");
-
+    // Don't set "active" here — CallScreen will set it after WebRTC handshake
     navigationRef.current?.navigate("Call" as never, {
       callId: call.id,
       callType: call.type,
       otherName: call.callerName,
+      otherUid: call.callerId,
       isCaller: false,
     } as never);
   };
 
   const handleReject = async () => {
     if (!incomingCall) return;
-    await updateCallStatus(incomingCall.id, "ended");
+    const call = incomingCall;
+    await updateCallStatus(call.id, "ended");
     setIncomingCall(null);
+
+    // Log missed call — senderId = caller so it shows on the caller's side
+    if (profile?.uid && call.callerId) {
+      try {
+        const dmId = await findOrCreateDmThread(profile.uid, call.callerId);
+        const icon = call.type === "video" ? "📹" : "📞";
+        await sendDirectMessage(dmId, call.callerId, `${icon} Missed ${call.type} call`);
+      } catch (e) {
+        console.warn("[Overlay] Failed to log missed call:", e);
+      }
+    }
   };
 
   if (!incomingCall) return null;

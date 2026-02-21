@@ -332,7 +332,12 @@ export function ForumChannelScreen({ route }: Props) {
             {/* Attachment button */}
             <TouchableOpacity
               style={styles.attachBtn}
-              onPress={() => setPickerVisible(true)}
+              onPress={() =>
+                Alert.alert(
+                  "Coming Soon",
+                  "File and media sharing will be available in a future update. Stay tuned!"
+                )
+              }
             >
               <Text style={styles.attachIcon}>+</Text>
             </TouchableOpacity>
