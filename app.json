@@ -57,10 +57,7 @@
           "cameraPermission": "Theraklick needs camera access for video calls",
           "microphonePermission": "Theraklick needs microphone access for calls"
         }
-      ],
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
-      "./plugins/withFirebaseMessagingManifest"
+      ]
     ],
     "extra": {
       "eas": {

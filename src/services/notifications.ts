@@ -1,28 +1,20 @@
 /**
- * Push notifications — Native FCM + expo-notifications for foreground display.
+ * Push notifications — Expo Notifications + Firestore token storage.
  *
- * Token flow:
- *   1. @react-native-firebase/messaging provides the native FCM token
- *   2. Token is saved at: users/{uid}/devices/{tokenHash}
- *   3. Notifications are sent directly via FCM Legacy HTTP API
+ * Token is saved at: users/{uid}/devices/{tokenHash}
  *
- * expo-notifications still handles:
- *   - Foreground notification display
- *   - Notification tap handlers
- *   - Local notifications (booking reminders)
- *   - Notification channels on Android
+ * SDK 54 requires passing projectId to getExpoPushTokenAsync.
+ * We read it from Constants.expoConfig.extra.eas.projectId
+ * or fall back to the slug.
  */
 
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
-import messaging from "@react-native-firebase/messaging";
+import Constants from "expo-constants";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { db, firebaseIsReady } from "./firebase";
-
-// FCM Legacy API server key — move to Cloud Functions for production
-const FCM_SERVER_KEY = process.env.EXPO_PUBLIC_FCM_SERVER_KEY || "";
 
 // Show notifications even when app is in foreground
 Notifications.setNotificationHandler({
@@ -34,7 +26,7 @@ Notifications.setNotificationHandler({
 });
 
 /**
- * Request permission + register native FCM token in Firestore.
+ * Request permission + register Expo push token in Firestore.
  * Returns the token string or null if permission denied / emulator.
  */
 export async function registerForPushNotifications(
@@ -42,23 +34,24 @@ export async function registerForPushNotifications(
 ): Promise<string | null> {
   try {
     if (!Device.isDevice) {
-      console.log("[FCM] Push notifications require a physical device.");
+      console.log("Push notifications require a physical device.");
       return null;
     }
 
-    // Request notification permission via expo-notifications (creates channels)
     const { status: existing } = await Notifications.getPermissionsAsync();
     let finalStatus = existing;
+
     if (existing !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
+
     if (finalStatus !== "granted") {
-      console.log("[FCM] Push notification permission denied.");
+      console.log("Push notification permission denied.");
       return null;
     }
 
-    // Android notification channels
+    // Android needs notification channels
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
         name: "Default",
@@ -77,22 +70,18 @@ export async function registerForPushNotifications(
       });
     }
 
-    // Request FCM permission (needed for iOS, harmless on Android)
-    const authStatus = await messaging().requestPermission();
-    const enabled =
-      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+    // SDK 54 requires projectId for Expo push tokens
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
 
-    if (!enabled) {
-      console.log("[FCM] Firebase messaging permission denied.");
-      return null;
-    }
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: projectId ?? undefined,
+    });
+    const token = tokenData.data;
 
-    // Get native FCM token
-    const token = await messaging().getToken();
-
-    // Persist token to Firestore
-    if (firebaseIsReady && db && uid && token) {
+    // Persist token to Firestore so we can send pushes to other users
+    if (firebaseIsReady && db && uid) {
       const tokenHash = simpleHash(token);
       await setDoc(
         doc(db, "users", uid, "devices", tokenHash),
@@ -105,10 +94,10 @@ export async function registerForPushNotifications(
       );
     }
 
-    console.log("[FCM] Token registered:", token.slice(0, 20) + "...");
+    console.log("Push token registered:", token);
     return token;
   } catch (error) {
-    console.warn("[FCM] Failed to register push notifications:", error);
+    console.warn("Failed to register push notifications:", error);
     return null;
   }
 }
@@ -150,7 +139,7 @@ export async function sendImmediateNotification(title: string, body: string) {
 }
 
 /**
- * Listen for notification taps.
+ * Listen for notification taps — returns a subscription to clean up.
  */
 export function addNotificationResponseListener(
   handler: (response: Notifications.NotificationResponse) => void
@@ -168,16 +157,14 @@ export function addNotificationReceivedListener(
 }
 
 /**
- * Get the last notification response (cold start from notification tap).
+ * Get the last notification response (if app was opened by tapping a notification).
  */
 export async function getLastNotificationResponse() {
   return Notifications.getLastNotificationResponseAsync();
 }
 
-// ── FCM Direct Send ─────────────────────────────────
-
 /**
- * Fetch all FCM tokens for a user from Firestore.
+ * Fetch all Expo push tokens for a user from Firestore.
  */
 async function getUserPushTokens(uid: string): Promise<string[]> {
   if (!firebaseIsReady || !db) return [];
@@ -193,51 +180,8 @@ async function getUserPushTokens(uid: string): Promise<string[]> {
 }
 
 /**
- * Send a push notification directly via FCM Legacy HTTP API.
- */
-async function sendFcmNotification(
-  token: string,
-  title: string,
-  body: string,
-  data: Record<string, string>,
-  channelId: string = "default"
-): Promise<boolean> {
-  if (!FCM_SERVER_KEY) {
-    console.warn("[FCM] No server key configured (EXPO_PUBLIC_FCM_SERVER_KEY)");
-    return false;
-  }
-
-  try {
-    const res = await fetch("https://fcm.googleapis.com/fcm/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `key=${FCM_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        to: token,
-        notification: {
-          title,
-          body,
-          sound: "default",
-          android_channel_id: channelId,
-          priority: "high",
-        },
-        data,
-        priority: "high",
-      }),
-    });
-    const result = await res.json();
-    console.log("[FCM] Send response:", JSON.stringify(result));
-    return result.success === 1;
-  } catch (e) {
-    console.warn("[FCM] Failed to send:", e);
-    return false;
-  }
-}
-
-/**
- * Send a call notification to a user via FCM.
+ * Send a push notification to a specific user via the Expo Push API.
+ * Used for incoming calls when the receiver's app is in the background.
  */
 export async function sendCallNotification(
   receiverUid: string,
@@ -246,31 +190,47 @@ export async function sendCallNotification(
   callId: string,
   callType: "audio" | "video"
 ): Promise<void> {
-  console.log("[FCM] Fetching tokens for:", receiverUid);
+  console.log("[CallNotif] Fetching tokens for:", receiverUid);
   const tokens = await getUserPushTokens(receiverUid);
-  console.log("[FCM] Found tokens:", tokens.length);
+  console.log("[CallNotif] Found tokens:", tokens.length, tokens);
   if (tokens.length === 0) {
-    console.log("[FCM] No tokens found for user:", receiverUid);
+    console.log("[CallNotif] No push tokens found for user:", receiverUid);
     return;
   }
 
-  const title = callerName;
-  const body = `${callerName} invited you to a ${callType} call. Tap to join.`;
-  const data = {
-    screen: "Call",
-    callId,
-    callType,
-    otherName: callerName,
-    callerUid,
-  };
+  const messages = tokens.map((token) => ({
+    to: token,
+    sound: "default",
+    title: `${callerName}`,
+    body: `${callerName} invited you to a ${callType} call. Tap to join.`,
+    priority: "high" as const,
+    channelId: "calls",
+    data: {
+      screen: "Call",
+      callId,
+      callType,
+      otherName: callerName,
+      callerUid,
+    },
+  }));
 
-  for (const token of tokens) {
-    await sendFcmNotification(token, title, body, data, "calls");
+  try {
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(messages),
+    });
+    const result = await res.json();
+    console.log("[CallNotif] Push API response:", JSON.stringify(result));
+  } catch (e) {
+    console.warn("[CallNotif] Failed to send call notification:", e);
   }
 }
 
 /**
- * Send a DM notification to a user via FCM.
+ * Send a push notification for a new DM to the other user.
  */
 export async function sendMessageNotification(
   receiverUid: string,
@@ -285,14 +245,28 @@ export async function sendMessageNotification(
     ? messageText.slice(0, 100) + "\u2026"
     : messageText;
 
-  const data = {
-    screen: "DirectMessage",
-    chatId,
-    otherName: senderName,
-  };
+  const messages = tokens.map((token) => ({
+    to: token,
+    sound: "default",
+    title: senderName,
+    body: preview,
+    priority: "high" as const,
+    channelId: "default",
+    data: {
+      screen: "DirectMessage",
+      chatId,
+      otherName: senderName,
+    },
+  }));
 
-  for (const token of tokens) {
-    await sendFcmNotification(token, senderName, preview, data, "default");
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(messages),
+    });
+  } catch (e) {
+    console.warn("[MsgNotif] Failed to send message notification:", e);
   }
 }
 
