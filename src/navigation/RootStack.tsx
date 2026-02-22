@@ -28,6 +28,7 @@ import { AdminScreen } from "../screens/AdminScreen";
 import { AllUsersScreen } from "../screens/AllUsersScreen";
 import { ApprovalsScreen } from "../screens/ApprovalsScreen";
 import { CounselorListScreen } from "../screens/CounselorListScreen";
+import { PeerMentorListScreen } from "../screens/PeerMentorListScreen";
 import { ForumChannelScreen } from "../screens/ForumChannelScreen";
 import { PersonalDetailsScreen } from "../screens/PersonalDetailsScreen";
 import { PrivacySecurityScreen } from "../screens/PrivacySecurityScreen";
@@ -49,6 +50,7 @@ export type RootStackParamList = {
   AllUsers: undefined;
   Approvals: undefined;
   CounselorList: undefined;
+  PeerMentorList: undefined;
   CounselorAvailability: undefined;
   Call: { callId: string; callType: "audio" | "video"; otherName: string; isCaller: boolean };
   ForumChannel: { channelId: string; channelName: string };
@@ -125,6 +127,11 @@ export function RootNavigator() {
               name="CounselorList"
               component={CounselorListScreen}
               options={{ headerShown: true, headerTitle: "Explore Counselors", headerTintColor: "#16A34A" }}
+            />
+            <Stack.Screen
+              name="PeerMentorList"
+              component={PeerMentorListScreen}
+              options={{ headerShown: true, headerTitle: "Peer Mentors", headerTintColor: "#16A34A" }}
             />
             <Stack.Screen
               name="CounselorAvailability"

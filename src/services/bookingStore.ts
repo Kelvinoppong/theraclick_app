@@ -149,6 +149,36 @@ export async function loadCounselors(): Promise<CounselorInfo[]> {
 }
 
 /* ═══════════════════════════════════════════════════════
+   PEER MENTOR LIST (for students browsing)
+   ═══════════════════════════════════════════════════════ */
+
+export type PeerMentorInfo = {
+  uid: string;
+  fullName: string;
+  specialization: string;
+};
+
+export async function loadPeerMentors(): Promise<PeerMentorInfo[]> {
+  if (firebaseIsReady && db) {
+    const q = query(
+      collection(db, "users"),
+      where("role", "==", "peer-mentor"),
+      where("status", "==", "active")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        uid: d.id,
+        fullName: data.fullName ?? "Peer Mentor",
+        specialization: data.application?.specialization ?? "Peer Support",
+      };
+    });
+  }
+  return [];
+}
+
+/* ═══════════════════════════════════════════════════════
    BOOKING CRUD
    ═══════════════════════════════════════════════════════ */
 

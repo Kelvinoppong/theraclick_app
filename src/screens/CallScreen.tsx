@@ -53,7 +53,7 @@ import { useAuth } from "../context/AuthContext";
 import { findOrCreateDmThread, sendDirectMessage } from "../services/messagingStore";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-const CALL_TIMEOUT_MS = 45_000; // 45 seconds before auto-ending unanswered calls
+const CALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes before auto-ending unanswered calls
 
 type Props = NativeStackScreenProps<any, "Call">;
 
@@ -191,10 +191,8 @@ export function CallScreen({ route, navigation }: Props) {
             ? `${mins}m ${secs}s`
             : `${secs}s`;
           logText = `${icon} ${callType === "video" ? "Video" : "Voice"} call · ${duration}`;
-        } else if (finalStatus === "ringing" || finalStatus === "connecting") {
-          logText = isCaller
-            ? `${icon} Cancelled ${callType} call`
-            : `${icon} Missed ${callType} call`;
+        } else if (finalStatus === "waiting" || finalStatus === "connecting") {
+          logText = `${icon} Missed ${callType} call`;
         } else {
           logText = `${icon} ${callType === "video" ? "Video" : "Voice"} call ended`;
         }
@@ -263,7 +261,7 @@ export function CallScreen({ route, navigation }: Props) {
         if (isCaller) {
           const offerJson = await createOffer();
           await writeSignal(callId, profile.uid, "offer", offerJson);
-          setCallStatus("ringing");
+          setCallStatus("waiting");
 
           // Auto-end if no answer within timeout
           timeoutRef.current = setTimeout(() => {
@@ -350,12 +348,56 @@ export function CallScreen({ route, navigation }: Props) {
   };
 
   const isVideo = callType === "video";
-  const showRemoteVideo = isVideo && remoteStream;
+  const isWaiting = callStatus === "waiting" || callStatus === "connecting";
+  const showRemoteVideo = isVideo && remoteStream && !isWaiting;
   const showLocalVideo = isVideo && localStream && !cameraOff;
+
+  // Waiting room: show local camera full-screen with overlay text
+  const showWaitingRoom = isWaiting && showLocalVideo;
+
+  const statusLabel = remoteCameraOff && callStatus === "active"
+    ? "Camera turned off"
+    : callStatus === "waiting"
+      ? `Waiting for ${otherName} to join...`
+      : callStatus === "connecting"
+        ? "Connecting..."
+        : callStatus === "active"
+          ? formatTime(elapsed)
+          : callStatus === "failed"
+            ? "Call failed"
+            : "";
 
   return (
     <View style={styles.container}>
-      {showRemoteVideo && !remoteCameraOff ? (
+      {showWaitingRoom ? (
+        /* Waiting room: local camera fills the screen */
+        <View style={styles.waitingRoom}>
+          <RTCView
+            streamURL={localStream!.toURL()}
+            style={styles.remoteVideo}
+            objectFit="cover"
+            mirror
+          />
+          <View style={styles.waitingOverlay}>
+            <View style={styles.waitingCard}>
+              <Animated.View
+                style={[
+                  styles.waitingAvatarPulse,
+                  { transform: [{ scale: pulseAnim }] },
+                ]}
+              >
+                <View style={styles.waitingAvatar}>
+                  <Text style={styles.waitingAvatarText}>
+                    {otherName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              </Animated.View>
+              <Text style={styles.waitingName}>{otherName}</Text>
+              <Text style={styles.waitingStatus}>{statusLabel}</Text>
+            </View>
+          </View>
+        </View>
+      ) : showRemoteVideo && !remoteCameraOff ? (
         <RTCView
           streamURL={remoteStream!.toURL()}
           style={styles.remoteVideo}
@@ -376,26 +418,15 @@ export function CallScreen({ route, navigation }: Props) {
             </View>
           </Animated.View>
           <Text style={styles.callerName}>{otherName}</Text>
-          <Text style={styles.statusText}>
-            {remoteCameraOff && callStatus === "active"
-              ? "Camera turned off"
-              : callStatus === "ringing"
-                ? "Ringing..."
-                : callStatus === "connecting"
-                  ? "Connecting..."
-                  : callStatus === "active"
-                    ? formatTime(elapsed)
-                    : callStatus === "failed"
-                      ? "Call failed"
-                      : ""}
-          </Text>
+          <Text style={styles.statusText}>{statusLabel}</Text>
           {remoteCameraOff && callStatus === "active" && (
             <Text style={styles.timerBelowAvatar}>{formatTime(elapsed)}</Text>
           )}
         </View>
       )}
 
-      {showLocalVideo && (
+      {/* Local video pip — only when call is active (not in waiting room) */}
+      {showLocalVideo && !isWaiting && (
         <TouchableOpacity
           style={[styles.localVideoWrap, { top: insets.top + 10 }]}
           onPress={switchCamera}
@@ -483,6 +514,54 @@ const styles = StyleSheet.create({
     flex: 1,
     width: SCREEN_W,
     height: SCREEN_H,
+  },
+  waitingRoom: {
+    flex: 1,
+  },
+  waitingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  waitingCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 20,
+    paddingHorizontal: 32,
+    paddingVertical: 28,
+  },
+  waitingAvatarPulse: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  waitingAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#16A34A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  waitingAvatarText: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  waitingName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    marginBottom: 6,
+  },
+  waitingStatus: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
   },
   audioContainer: {
     flex: 1,

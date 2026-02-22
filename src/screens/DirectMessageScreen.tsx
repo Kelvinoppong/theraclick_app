@@ -25,7 +25,7 @@ import {
   sendDirectMessage,
   DirectMessage,
 } from "../services/messagingStore";
-import { sendImmediateNotification, sendCallNotification } from "../services/notifications";
+import { sendCallNotification, sendMessageNotification } from "../services/notifications";
 import { addNotification } from "../services/notificationStore";
 import { createCall, type CallType } from "../services/callStore";
 import { db, firebaseIsReady } from "../services/firebase";
@@ -86,14 +86,16 @@ export function DirectMessageScreen({ route, navigation }: Props) {
       await sendDirectMessage(chatId, profile.uid, text);
 
       const senderName = profile.fullName || "Someone";
-      const title = `New message from ${senderName}`;
-      const preview = text.length > 80 ? text.slice(0, 80) + "\u2026" : text;
 
-      sendImmediateNotification(title, preview);
+      // Push notification to the other user's device (works even if app is closed)
+      if (resolvedOtherUid) {
+        sendMessageNotification(resolvedOtherUid, senderName, text, chatId);
+      }
+
       addNotification({
         type: "dm_received",
-        title,
-        body: preview,
+        title: `New message from ${senderName}`,
+        body: text.length > 80 ? text.slice(0, 80) + "\u2026" : text,
         screen: "DirectMessage",
         data: { chatId, otherName },
       });

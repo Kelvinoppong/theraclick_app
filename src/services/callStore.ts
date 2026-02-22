@@ -25,7 +25,7 @@ import {
 
 import { db, firebaseIsReady } from "./firebase";
 
-export type CallStatus = "ringing" | "active" | "ended" | "missed";
+export type CallStatus = "waiting" | "active" | "ended" | "missed";
 export type CallType = "audio" | "video";
 
 export type CallDoc = {
@@ -63,7 +63,7 @@ export async function createCall(
     callerName,
     receiverName,
     type,
-    status: "ringing",
+    status: "waiting",
     createdAt: serverTimestamp(),
   });
 
@@ -128,7 +128,7 @@ export function subscribeToCall(
       callerName: data.callerName || "Unknown",
       receiverName: data.receiverName || "Unknown",
       type: data.type || "audio",
-      status: data.status || "ringing",
+      status: data.status || "waiting",
       createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
     });
   });
@@ -170,7 +170,7 @@ export function subscribeToIncomingCalls(
   const q = query(
     collection(db, "calls"),
     where("receiverId", "==", userId),
-    where("status", "==", "ringing")
+    where("status", "==", "waiting")
   );
 
   return onSnapshot(q, (snap) => {
@@ -184,7 +184,7 @@ export function subscribeToIncomingCalls(
           callerName: data.callerName || "Unknown",
           receiverName: data.receiverName || "Unknown",
           type: data.type || "audio",
-          status: "ringing",
+          status: "waiting",
           createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
         });
       }

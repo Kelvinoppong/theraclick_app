@@ -1,10 +1,11 @@
 /**
- * IncomingCallOverlay — global modal shown when an incoming call is detected.
+ * IncomingCallOverlay — Google Meet-style "Join" banner.
  *
  * Rendered in App.tsx above all other content. Listens to Firestore
  * for calls where the current user is the receiver.
  *
- * Displays caller name, call type, and Accept/Reject buttons.
+ * Shows a slide-down card: "[Name] invited you to a call" with
+ * Join and Dismiss buttons — no ringing, no vibration.
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -14,8 +15,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
-  Dimensions,
-  Vibration,
 } from "react-native";
 
 import {
@@ -28,82 +27,49 @@ import { useAuth } from "../context/AuthContext";
 import { navigationRef } from "../navigation/navigationRef";
 import { findOrCreateDmThread, sendDirectMessage } from "../services/messagingStore";
 
-const { width: SCREEN_W } = Dimensions.get("window");
-
 export function IncomingCallOverlay() {
   const { profile } = useAuth();
   const [incomingCall, setIncomingCall] = useState<CallDoc | null>(null);
+  const slideAnim = useRef(new Animated.Value(-200)).current;
 
-  const slideAnim = useRef(new Animated.Value(-300)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  // Listen for incoming calls
   useEffect(() => {
     if (!profile?.uid) return;
-
     const unsub = subscribeToIncomingCalls(profile.uid, (call) => {
       setIncomingCall(call);
     });
-
     return () => unsub();
   }, [profile?.uid]);
 
-  // Watch the call document — dismiss overlay if caller cancels
+  // Dismiss if caller cancels
   useEffect(() => {
     if (!incomingCall) return;
-
     const unsub = subscribeToCall(incomingCall.id, (call) => {
       if (!call || call.status === "ended" || call.status === "missed") {
         setIncomingCall(null);
       }
     });
-
     return () => unsub();
   }, [incomingCall?.id]);
 
-  // Slide in + vibrate when incoming call appears
+  // Slide in when banner appears
   useEffect(() => {
     if (incomingCall) {
       Animated.spring(slideAnim, {
         toValue: 0,
-        tension: 60,
-        friction: 10,
+        tension: 50,
+        friction: 9,
         useNativeDriver: true,
       }).start();
-
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.08,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      loop.start();
-
-      Vibration.vibrate([0, 500, 200, 500, 200, 500], false);
-
-      return () => {
-        loop.stop();
-        Vibration.cancel();
-      };
     } else {
-      slideAnim.setValue(-300);
+      slideAnim.setValue(-200);
     }
   }, [incomingCall]);
 
-  const handleAccept = async () => {
+  const handleJoin = () => {
     if (!incomingCall) return;
     const call = incomingCall;
     setIncomingCall(null);
 
-    // Don't set "active" here — CallScreen will set it after WebRTC handshake
     navigationRef.current?.navigate("Call" as never, {
       callId: call.id,
       callType: call.type,
@@ -113,13 +79,12 @@ export function IncomingCallOverlay() {
     } as never);
   };
 
-  const handleReject = async () => {
+  const handleDismiss = async () => {
     if (!incomingCall) return;
     const call = incomingCall;
     await updateCallStatus(call.id, "ended");
     setIncomingCall(null);
 
-    // Log missed call — senderId = caller so it shows on the caller's side
     if (profile?.uid && call.callerId) {
       try {
         const dmId = await findOrCreateDmThread(profile.uid, call.callerId);
@@ -137,17 +102,9 @@ export function IncomingCallOverlay() {
 
   return (
     <Animated.View
-      style={[
-        styles.overlay,
-        { transform: [{ translateY: slideAnim }] },
-      ]}
+      style={[styles.overlay, { transform: [{ translateY: slideAnim }] }]}
     >
-      <Animated.View
-        style={[
-          styles.card,
-          { transform: [{ scale: pulseAnim }] },
-        ]}
-      >
+      <View style={styles.card}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
             {incomingCall.callerName.charAt(0).toUpperCase()}
@@ -158,26 +115,20 @@ export function IncomingCallOverlay() {
           <Text style={styles.callerName} numberOfLines={1}>
             {incomingCall.callerName}
           </Text>
-          <Text style={styles.callType}>
-            Incoming {isVideo ? "Video" : "Audio"} Call
+          <Text style={styles.inviteText}>
+            invited you to a {isVideo ? "video" : "voice"} call
           </Text>
         </View>
 
-        <View style={styles.buttons}>
-          <TouchableOpacity
-            style={styles.rejectBtn}
-            onPress={handleReject}
-          >
-            <Text style={styles.btnIcon}>✕</Text>
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.dismissBtn} onPress={handleDismiss}>
+            <Text style={styles.dismissText}>Dismiss</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.acceptBtn}
-            onPress={handleAccept}
-          >
-            <Text style={styles.btnIcon}>📞</Text>
+          <TouchableOpacity style={styles.joinBtn} onPress={handleJoin}>
+            <Text style={styles.joinText}>Join</Text>
           </TouchableOpacity>
         </View>
-      </Animated.View>
+      </View>
     </Animated.View>
   );
 }
@@ -196,26 +147,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#111827",
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     elevation: 12,
     shadowColor: "#000",
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.35,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     gap: 12,
   },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#16A34A",
     justifyContent: "center",
     alignItems: "center",
   },
   avatarText: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: "800",
     color: "#FFFFFF",
   },
@@ -223,37 +174,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   callerName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
     color: "#FFFFFF",
   },
-  callType: {
+  inviteText: {
     fontSize: 13,
     color: "#9CA3AF",
-    marginTop: 2,
+    marginTop: 1,
   },
-  buttons: {
+  actions: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
   },
-  rejectBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#EF4444",
-    justifyContent: "center",
-    alignItems: "center",
+  dismissBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
-  acceptBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  dismissText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#9CA3AF",
+  },
+  joinBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
     backgroundColor: "#16A34A",
-    justifyContent: "center",
-    alignItems: "center",
   },
-  btnIcon: {
-    fontSize: 20,
+  joinText: {
+    fontSize: 14,
+    fontWeight: "700",
     color: "#FFFFFF",
   },
 });

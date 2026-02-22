@@ -83,22 +83,37 @@ export function StudentDashboardScreen() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [counselors, setCounselors] = useState<CounselorPreview[]>([]);
+  const [mentors, setMentors] = useState<CounselorPreview[]>([]);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (!firebaseIsReady || !db) return;
     (async () => {
       try {
-        const q = query(
+        const cQ = query(
           collection(db!, "users"),
           where("role", "==", "counselor"),
           where("status", "==", "active")
         );
-        const snap = await getDocs(q);
+        const cSnap = await getDocs(cQ);
         setCounselors(
-          snap.docs.slice(0, 6).map((d) => ({
+          cSnap.docs.slice(0, 6).map((d) => ({
             uid: d.id,
             fullName: d.data().fullName || "Counselor",
+            specialization: d.data().specialization,
+          }))
+        );
+
+        const mQ = query(
+          collection(db!, "users"),
+          where("role", "==", "peer-mentor"),
+          where("status", "==", "active")
+        );
+        const mSnap = await getDocs(mQ);
+        setMentors(
+          mSnap.docs.slice(0, 6).map((d) => ({
+            uid: d.id,
+            fullName: d.data().fullName || "Peer Mentor",
             specialization: d.data().specialization,
           }))
         );
@@ -254,6 +269,49 @@ export function StudentDashboardScreen() {
             >
               <Text style={styles.teamCtaText}>
                 View All Counselors
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ─── Peer Mentors ─── */}
+        {mentors.length > 0 && (
+          <View style={styles.mentorSection}>
+            <Text style={styles.teamHeading}>Peer Mentors</Text>
+            <View style={styles.teamDivider} />
+            <Text style={styles.teamSubtitle}>
+              Fellow students trained to listen, support, and guide you.
+              No appointment needed — just start a conversation.
+            </Text>
+
+            <View style={styles.teamGrid}>
+              {mentors.map((m) => (
+                <TouchableOpacity
+                  key={m.uid}
+                  style={styles.mentorCard}
+                  onPress={() => nav.navigate("PeerMentorList")}
+                >
+                  <View style={styles.mentorAvatar}>
+                    <Text style={styles.teamAvatarText}>
+                      {m.fullName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={styles.teamName} numberOfLines={1}>
+                    {m.fullName}
+                  </Text>
+                  <Text style={styles.teamRole} numberOfLines={1}>
+                    {m.specialization || "Peer Support"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={styles.mentorCta}
+              onPress={() => nav.navigate("PeerMentorList")}
+            >
+              <Text style={styles.mentorCtaText}>
+                View All Peer Mentors
               </Text>
             </TouchableOpacity>
           </View>
@@ -598,6 +656,52 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     color: "#16A34A",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  /* Peer Mentors */
+  mentorSection: {
+    paddingHorizontal: 22,
+    paddingTop: 36,
+    paddingBottom: 24,
+    backgroundColor: "#EFF6FF",
+  },
+  mentorCard: {
+    width: (SCREEN_W - 58) / 2,
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+  },
+  mentorAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#1E3A5F",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+    borderWidth: 3,
+    borderColor: "#2563EB",
+  },
+  mentorCta: {
+    borderWidth: 2,
+    borderColor: "#2563EB",
+    borderRadius: 4,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  mentorCtaText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#2563EB",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
