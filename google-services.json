@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "123957047985",
+    "project_id": "theracklick-e74d0",
+    "storage_bucket": "theracklick-e74d0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:123957047985:android:3a718fe4d389ca8f4ae890",
+        "android_client_info": {
+          "package_name": "com.theraklick.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1drTrqBcM-Y7r6GP065h9sY-M6Gn5A84"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
